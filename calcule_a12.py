@@ -1,219 +1,238 @@
-# -*- coding: utf-8 -*-
-
 """
-***************************************************************************
-*                                                                         *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or     *
-*   (at your option) any later version.                                   *
-*                                                                         *
-***************************************************************************
+Model exported as python.
+Name : Indice A1 A2
+Group : 
+With QGIS : 32601
 """
+from tempfile import NamedTemporaryFile as Ntf
+from qgis.core import QgsProcessing
+from qgis.core import QgsProcessingAlgorithm
+from qgis.core import QgsProcessingMultiStepFeedback
+from qgis.core import QgsProcessingParameterRasterLayer
+from qgis.core import QgsProcessingParameterNumber
+from qgis.core import QgsProcessingParameterVectorLayer
+from qgis.core import QgsProcessingParameterFeatureSink
+from qgis.core import QgsProcessingParameterRasterDestination
+from qgis.core import QgsCoordinateReferenceSystem
+import processing
 
-from qgis.PyQt.QtCore import QCoreApplication
-from qgis.core import (QgsProcessing,
-                       QgsFeatureSink,
-                       QgsProcessingException,
-                       QgsProcessingAlgorithm,
-                       QgsProcessingParameterFeatureSource,
-                       QgsProcessingParameterFeatureSink,
-                       QgsProcessingParameterRasterLayer,
-                       QgsProcessingParameterRasterDestination
-                       )
-from qgis import processing
 
-
-class drain_area_land_use(QgsProcessingAlgorithm):
-    """
-    This is an example algorithm that takes a vector layer and
-    creates a new identical one.
-
-    It is meant to be used as an example of how to create your own
-    algorithms and explain methods and variables used to do it. An
-    algorithm like this will be available in all elements, and there
-    is not need for additional work.
-
-    All Processing algorithms should extend the QgsProcessingAlgorithm
-    class.
-    """
-
-    # Constants used to refer to parameters and outputs. They will be
-    # used when calling the algorithm from another algorithm, or when
-    # calling from the QGIS console.
-
-    RIV_NETWORK = 'RIV_NETWORK'
-    DEM = 'DEM'
-    tmp_ras_out = "test_out_raster"
-    OUTPUT = 'OUTPUT'
-
-    def tr(self, string):
-        """
-        Returns a translatable string with the self.tr() function.
-        """
-        return QCoreApplication.translate('Processing', string)
-
-    def createInstance(self):
-        return drain_area_land_use()
-
-    def name(self):
-        """
-        Returns the algorithm name, used for identifying the algorithm. This
-        string should be fixed for the algorithm, and must not be localised.
-        The name should be unique within each provider. Names should contain
-        lowercase alphanumeric characters only and no spaces or other
-        formatting characters.
-        """
-        return 'drainarealanduse'
-
-    def displayName(self):
-        """
-        Returns the translated algorithm name, which should be used for any
-        user-visible display of the algorithm name.
-        """
-        return self.tr('Drain area land use')
-
-    def group(self):
-        """
-        Returns the name of the group this algorithm belongs to. This string
-        should be localised.
-        """
-        return self.tr('IQM')
-
-    def groupId(self):
-        """
-        Returns the unique ID of the group this algorithm belongs to. This
-        string should be fixed for the algorithm, and must not be localised.
-        The group id should be unique within each provider. Group id should
-        contain lowercase alphanumeric characters only and no spaces or other
-        formatting characters.
-        """
-        return 'IQM'
-
-    def shortHelpString(self):
-        """
-        Returns a localised short helper string for the algorithm. This string
-        should provide a basic description about what the algorithm does and the
-        parameters and outputs associated with it..
-        """
-        return self.tr("""
-        Calcule de l'indice de qualité morphologique A1_A2.
-        Prend en entrée le DEM et le reseau de cours d'eau d'une region.
-        calcule l'utilisation de sols des aires de drenage pour chaque segment de riviere.
-        """)
+class IndiceA1A2(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        """
-        Here we define the inputs and output of the algorithm, along
-        with some other properties.
-        """
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'landuse', defaultValue=None))
+        #self.addParameter(QgsProcessingParameterNumber('outlet_fid', 'outlet_FID', type=QgsProcessingParameterNumber.Integer, minValue=0, defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Stream Network', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        #self.addParameter(QgsProcessingParameterFeatureSink('Single_outlet', 'Single_outlet', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
+        #self.addParameter(QgsProcessingParameterFeatureSink('Report', 'report', optional=True, type=QgsProcessing.TypeVector, createByDefault=False, defaultValue=None))
+        #self.addParameter(QgsProcessingParameterRasterDestination('Tmpreclassifiedtif', '/tmp/reclassified.tif', createByDefault=True, defaultValue=None))
 
-        # Add DEM input
-        self.addParameter(
-            QgsProcessingParameterRasterLayer(
-                self.DEM,
-                self.tr('DEM'),
-            )
-        )
+    def processAlgorithm(self, parameters, context, model_feedback):
+        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
+        # overall progress through the model
+        feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
+        results = {}
+        outputs = {}
         
-        # disabled for dev testing
-        """ 
-        # Add river network input
-        self.addParameter(
-            QgsProcessingParameterFeatureSource(
-                self.RIV_NETWORK,
-                self.tr('Cours d\'eau'),
-                [QgsProcessing.TypeVectorLine]
-            )
-        )"""
+        # Create temporary file locations
+        tmp = {}
+        
+        # Create tmp File #1 for D8 Creation
+        tmp['d8'] = Ntf(suffix="d8.tif")
+        
+        
+        
+        # WBT : Create D8 from dem
+        # FillBurn
+        alg_params = {
+            'dem': parameters['dem'],
+            'streams': parameters['stream_network'],
+            'output': tmp['d8'].name
+        }
+        outputs['Fillburn'] = processing.run('wbt:FillBurn', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+        
+        print(outputs)
+        quit()
+        
+        feedback.setCurrentStep(1)
+        if feedback.isCanceled():
+            return {}
 
-        self.addParameter(
-            QgsProcessingParameterRasterDestination(
-            self.tmp_ras_out,
-            self.tr("test Raster output")
-            )
-        )
-        
-        # Disabled for dev testing
-        """
-        # Add feature sink
-        self.addParameter(
-            QgsProcessingParameterFeatureSink(
-                self.OUTPUT,
-                self.tr('Output layer')
-            )
-        )"""
-        
-        
-        #
+        # FillDepressions
+        alg_params = {
+            'dem': outputs['Fillburn']['output'],
+            'fix_flats': True,
+            'flat_increment': None,
+            'max_depth': None,
+            'output': tmp['d8'].name
+        }
+        outputs['Filldepressions'] = processing.run('wbt:FillDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
 
-    def processAlgorithm(self, parameters, context, feedback):
-                
-        # Retrieve the feature source and sink. The 'dest_id' variable is used
-        # to uniquely identify the feature sink, and must be included in the
-        # dictionary returned by the processAlgorithm function.
-        source = self.parameterAsRasterLayer(
-            parameters,
-            self.DEM,
-            context
-        )
-        
+        feedback.setCurrentStep(2)
+        if feedback.isCanceled():
+            return {}
 
-        # If source was not found, throw an exception to indicate that the algorithm
-        # encountered a fatal error. The exception text can be any string, but in this
-        # case we use the pre-built invalidSourceError method to return a standard
-        # helper text for when a source cannot be evaluated
-        if source is None:
-            raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
-            
-            
-        #(a, b) = self.parameterAs
-        """
-        (sink, dest_id) = self.parameterAsSink(
-            parameters,
-            self.OUTPUT,
-            context,
-            source.fields(),
-            source.wkbType(),
-            source.sourceCrs()
-        )
-        """
-        # Send some information to the user
-        feedback.pushInfo('CRS is {}'.format(source.crs().authid()))
+        # BreachDepressionsLeastCost
+        alg_params = {
+            'dem': outputs['Fillburn']['output'],
+            'dist': 10,
+            'fill': True,
+            'flat_increment': None,
+            'max_cost': None,
+            'min_dist': False,
+            'output': tmp['d8'].name
+        }
+        outputs['Breachdepressionsleastcost'] = processing.run('wbt:BreachDepressionsLeastCost', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
 
-        # To run another Processing algorithm as part of this algorithm, you can use
-        # processing.run(...). Make sure you pass the current context and feedback
-        # to processing.run to ensure that all temporary layer outputs are available
-        # to the executed algorithm, and that the executed algorithm can send feedback
-        # reports to the user (and correctly handle cancellation and progress reports!)
-        sobel_filter = processing.run("wbt:SobelFilter", {
-        'input': parameters[self.DEM],
-        'variant':0,
-        'clip':0,
-        'output':'TEMPORARY_OUTPUT'
-        }, context=context, feedback=feedback)
+        feedback.setCurrentStep(3)
+        if feedback.isCanceled():
+            return {}
+
+        # D8Pointer
+        alg_params = {
+            'dem': outputs['Breachdepressionsleastcost']['output'],
+            'esri_pntr': False,
+            'output': tmp['d8'].name
+        }
+        outputs['D8pointer'] = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+
+        feedback.setCurrentStep(4)
+        if feedback.isCanceled():
+            return {}
         
-        #print(type(sobel_filter), sobel_filter, sep="\n")
-        #out = QgsProcessingUtils.mapLayerFromString('TEMPORARY_OUTPUT', context)
-        print(qgis._core.QgsProcessingUtils)
-    
-        if False:
-            buffered_layer = processing.run("native:buffer", {
-                'INPUT': dest_id,
-                'DISTANCE': 1.5,
-                'SEGMENTS': 5,
-                'END_CAP_STYLE': 0,
-                'JOIN_STYLE': 0,
-                'MITER_LIMIT': 2,
-                'DISSOLVE': False,
-                'OUTPUT': 'memory:'
-            }, context=context, feedback=feedback)['OUTPUT']
+        # D8 Created #
         
-        # Return the results of the algorithm. In this case our only result is
-        # the feature sink which contains the processed features, but some
-        # algorithms may return multiple feature sinks, calculated numeric
-        # statistics, etc. These should all be included in the returned
-        # dictionary, with keys matching the feature corresponding parameter
-        # or output names.
-        return {self.OUTPUT: sobel_filter}
-    
+        
+        
+        # Extract specific vertex
+        # TODO : try and remove is_child_algorithm
+        alg_params = {
+            'INPUT': parameters['stream_network'],
+            'VERTICES': '-2',
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+
+        feedback.setCurrentStep(5)
+        if feedback.isCanceled():
+            return {}
+        
+        ############ LOOP GOES HERE ############
+        
+        # Extract Single outlet
+        alg_params = {
+            'FIELD': 'fid',
+            'INPUT': outputs['ExtractSpecificVertex']['OUTPUT'],
+            'OPERATOR': 0,  # =
+            'VALUE': parameters['outlet_fid'],
+            'OUTPUT': parameters['Single_outlet']
+        }
+        outputs['ExtractSingleOutlet'] = processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Single_outlet'] = outputs['ExtractSingleOutlet']['OUTPUT']
+
+        feedback.setCurrentStep(6)
+        if feedback.isCanceled():
+            return {}
+        
+        # Watershed
+        alg_params = {
+            'd8_pntr': outputs['D8pointer']['output'],
+            'esri_pntr': False,
+            'pour_pts': outputs['ExtractSingleOutlet']['OUTPUT'],
+            'output': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(7)
+        if feedback.isCanceled():
+            return {}
+
+        # Polygonize (raster to vector)
+        alg_params = {
+            'BAND': 1,
+            'EIGHT_CONNECTEDNESS': False,
+            'EXTRA': '',
+            'FIELD': 'DN',
+            'INPUT': outputs['Watershed']['output'],
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(8)
+        if feedback.isCanceled():
+            return {}
+
+        # Drain_area Land_use
+        alg_params = {
+            'ALPHA_BAND': False,
+            'CROP_TO_CUTLINE': True,
+            'DATA_TYPE': 0,  # Use Input Layer Data Type
+            'EXTRA': '',
+            'INPUT': parameters['landuse'],
+            'KEEP_RESOLUTION': True,
+            'MASK': outputs['PolygonizeRasterToVector']['OUTPUT'],
+            'MULTITHREADING': False,
+            'NODATA': None,
+            'OPTIONS': '',
+            'SET_RESOLUTION': False,
+            'SOURCE_CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
+            'TARGET_CRS': 'ProjectCrs',
+            'TARGET_EXTENT': None,
+            'X_RESOLUTION': None,
+            'Y_RESOLUTION': None,
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        feedback.setCurrentStep(9)
+        if feedback.isCanceled():
+            return {}
+
+        # Reduced Landuse
+        alg_params = {
+            'DATA_TYPE': 0,  # Byte
+            'INPUT_RASTER': outputs['Drain_areaLand_use']['OUTPUT'],
+            'NODATA_FOR_MISSING': True,
+            'NO_DATA': 0,
+            'RANGE_BOUNDARIES': 2,  # min <= value <= max
+            'RASTER_BAND': 1,
+            'TABLE': ['50','56','1','210','235','1','501','735','1','101','199','2'],
+            'OUTPUT': parameters['Tmpreclassifiedtif']
+        }
+        outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Tmpreclassifiedtif'] = outputs['ReducedLanduse']['OUTPUT']
+
+        feedback.setCurrentStep(10)
+        if feedback.isCanceled():
+            return {}
+
+        # Landuse unique values report
+        alg_params = {
+            'BAND': 1,
+            'INPUT': outputs['ReducedLanduse']['OUTPUT'],
+            'OUTPUT_TABLE': parameters['Report']
+        }
+        outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        results['Report'] = outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE']
+        
+        # Clearing tem files
+        for file in tmp.values():
+            file.close()
+        
+        return results
+
+    def name(self):
+        return 'Indice A1 A2'
+
+    def displayName(self):
+        return 'Indice A1 A2'
+
+    def group(self):
+        return ''
+
+    def groupId(self):
+        return ''
+
+    def createInstance(self):
+        return IndiceA1A2()
