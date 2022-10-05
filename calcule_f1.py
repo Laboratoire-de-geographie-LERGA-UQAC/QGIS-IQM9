@@ -48,64 +48,8 @@ class calculerF1(QgsProcessingAlgorithm):
     INPUT = 'INPUT'
     OUTPUT = 'OUTPUT'
 
-    def tr(self, string):
-        """
-        Returns a translatable string with the self.tr() function.
-        """
-        return QCoreApplication.translate('Processing', string)
-
-    def createInstance(self):
-        return calculerF1()
-
-    def name(self):
-        """
-        Returns the algorithm name, used for identifying the algorithm. This
-        string should be fixed for the algorithm, and must not be localised.
-        The name should be unique within each provider. Names should contain
-        lowercase alphanumeric characters only and no spaces or other
-        formatting characters.
-        """
-        return 'calculerf1'
-
-    def displayName(self):
-        """
-        Returns the translated algorithm name, which should be used for any
-        user-visible display of the algorithm name.
-        """
-        return self.tr('Calcule F1')
-
-    def group(self):
-        """
-        Returns the name of the group this algorithm belongs to. This string
-        should be localised.
-        """
-        return self.tr('IQM')
-
-    def groupId(self):
-        """
-        Returns the unique ID of the group this algorithm belongs to. This
-        string should be fixed for the algorithm, and must not be localised.
-        The group id should be unique within each provider. Group id should
-        contain lowercase alphanumeric characters only and no spaces or other
-        formatting characters.
-        """
-        return 'IQM'
-
-    def shortHelpString(self):
-        """
-        Returns a localised short helper string for the algorithm. This string
-        should provide a basic description about what the algorithm does and the
-        parameters and outputs associated with it..
-        """
-        return self.tr("""Calcule de l'indice F1, à partire de la base de donnée des structures issue de \n
-        https://www.donneesquebec.ca/recherche/dataset/structure#""")
 
     def initAlgorithm(self, config=None):
-        """
-        Here we define the inputs and output of the algorithm, along
-        with some other properties.
-        """
-
         # We add the input vector features source. It can have any kind of
         # geometry.
         self.addParameter(
@@ -127,10 +71,6 @@ class calculerF1(QgsProcessingAlgorithm):
         )
 ######################################################################################################
     def processAlgorithm(self, parameters, context, feedback):
-        """
-        Here is where the processing itself takes place.
-        """
-
         # Retrieve the feature source and sink. The 'dest_id' variable is used
         # to uniquely identify the feature sink, and must be included in the
         # dictionary returned by the processAlgorithm function.
@@ -228,12 +168,27 @@ class calculerF1(QgsProcessingAlgorithm):
                 # Update the progress bar
                 feedback.setProgress(int(current * total))
 
-
-
-        # Return the results of the algorithm. In this case our only result is
-        # the feature sink which contains the processed features, but some
-        # algorithms may return multiple feature sinks, calculated numeric
-        # statistics, etc. These should all be included in the returned
-        # dictionary, with keys matching the feature corresponding parameter
-        # or output names.
         return {self.OUTPUT: dest_id}
+    
+    
+    def tr(self, string):
+        return QCoreApplication.translate('Processing', string)
+
+    def createInstance(self):
+        return calculerF1()
+
+    def name(self):
+        return 'calculerf1'
+
+    def displayName(self):
+        return self.tr('Calcule F1')
+
+    def group(self):
+        return self.tr('IQM')
+
+    def groupId(self):
+        return 'iqm'
+
+    def shortHelpString(self):
+        return self.tr("""Calcule de l'indice F1, à partire de la base de donnée des structures issue de \n
+        https://www.donneesquebec.ca/recherche/dataset/structure#""")

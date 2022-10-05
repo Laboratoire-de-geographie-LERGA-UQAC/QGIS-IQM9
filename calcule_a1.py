@@ -52,7 +52,7 @@ class IndiceA1A2(QgsProcessingAlgorithm):
         
         # Define Sink fields
         sink_fields = source.fields()
-        sink_fields.append(QgsField("Indice A1A2", QVariant.Int))
+        sink_fields.append(QgsField("Indice A1", QVariant.Int))
         
         # Define sink
         (sink, dest_id) = self.parameterAsSink(
@@ -293,16 +293,16 @@ class IndiceA1A2(QgsProcessingAlgorithm):
         return {'IQM': dest_id}
 
     def name(self):
-        return 'Indice A1 A2'
+        return 'Indice A1'
 
     def displayName(self):
-        return 'Indice A1 A2'
+        return 'Indice A1'
 
     def group(self):
-        return ''
+        return 'IQM'
 
     def groupId(self):
-        return ''
+        return 'iqm'
 
     def createInstance(self):
         return IndiceA1A2()
