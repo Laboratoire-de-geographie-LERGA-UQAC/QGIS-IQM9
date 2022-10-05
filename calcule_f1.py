@@ -151,7 +151,7 @@ class calculerF1(QgsProcessingAlgorithm):
             
         #Adding new field to output
         sink_fields = source.fields()
-        sink_fields.append(QgsField("Indice F1", QVariant.Double))
+        sink_fields.append(QgsField("Indice F1", QVariant.Int))
         
         (sink, dest_id) = self.parameterAsSink(
             parameters,
