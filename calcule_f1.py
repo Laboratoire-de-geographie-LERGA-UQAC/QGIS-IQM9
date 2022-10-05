@@ -10,7 +10,7 @@
 *                                                                         *
 ***************************************************************************
 """
-
+from collections import Counter
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (QgsProcessing,
                        QgsFeatureSink,
@@ -47,11 +47,12 @@ class calculerF1(QgsProcessingAlgorithm):
 
     INPUT = 'INPUT'
     OUTPUT = 'OUTPUT'
-
+    STRUCTURES_PATH = '/home/karim/uqac/indice_F1/data/Structure_tq_shp/gsq_v_desc_strct_tri_rpr.shp'
+    FID = "Id"
+    
 
     def initAlgorithm(self, config=None):
-        # We add the input vector features source. It can have any kind of
-        # geometry.
+        
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
@@ -59,33 +60,26 @@ class calculerF1(QgsProcessingAlgorithm):
                 [QgsProcessing.TypeVectorAnyGeometry]
             )
         )
-
-        # We add a feature sink in which to store our processed features (this
-        # usually takes the form of a newly created vector layer when the
-        # algorithm is run in QGIS).
+        
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
                 self.tr('Output layer')
             )
         )
-######################################################################################################
+
     def processAlgorithm(self, parameters, context, feedback):
-        # Retrieve the feature source and sink. The 'dest_id' variable is used
-        # to uniquely identify the feature sink, and must be included in the
-        # dictionary returned by the processAlgorithm function.
+        
+        outputs = dict()
+        
         source = self.parameterAsSource(
             parameters,
             self.INPUT,
             context
         )
-        # Create a QgsVectorLayer from source
-        source_vl = QgsVectorLayer(parameters[self.INPUT],'hihi','memory')
         
-        # If source was not found, throw an exception to indicate that the algorithm
-        # encountered a fatal error. The exception text can be any string, but in this
-        # case we use the pre-built invalidSourceError method to return a standard
-        # helper text for when a source cannot be evaluated
+        # Create a QgsVectorLayer from source
+        source_vl = QgsVectorLayer(parameters[self.INPUT],'hihi','memory')        
         if source is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
             
@@ -102,71 +96,68 @@ class calculerF1(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        # Send some information to the user
-        feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
-
-        # If sink was not created, throw an exception to indicate that the algorithm
-        # encountered a fatal error. The exception text can be any string, but in this
-        # case we use the pre-built invalidSinkError method to return a standard
-        # helper text for when a sink cannot be evaluated
         if sink is None:
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
+
+        # Send some information to the user
+        feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
         
         # find and read the structures shp file
-        structures_path = '/home/karim/uqac/indice_F1/data/Structure_tq_shp/gsq_v_desc_strct_tri_rpr.shp'
-        structure = QgsVectorLayer(structures_path, 'structures','ogr')
-
-        # clip to current extent
-        req = QgsFeatureRequest().setFilterRect(source.sourceExtent())
-        cliped = structure.materialize(req)
-        QgsProject.instance().addMapLayer(cliped)
+        structures = QgsVectorLayer(self.STRUCTURES_PATH, 'structures','ogr')        
         
-        # find source features closest to structures
-        # by constructing spatial index
-        index = QgsSpatialIndex(source.getFeatures())
+        prefix = "segment_"
+        parameters = {
+            "INPUT": structures,
+            "INPUT_2": source.sourceName(),
+            "DISCARD_NONMATCHING": True, 
+            "FIELDS_TO_COPY": [self.FID],
+            "MAX_DISTANCE": 8,
+            "PREFIX": prefix,
+            "NEIGHBORS": 2,
+            "OUTPUT": "TEMPORARY_OUTPUT",
+            #"area_units": "m2",
+            #"distance_units": "meters",
+            #"ellipsoid": "EPSG:7019",           
+        }
+        outputs['nearest'] = processing.run(
+            "native:joinbynearest",
+            parameters,
+            context=context,feedback=feedback
+        )
         
-        # Seek obstructed rivers
-        obstructed_ids = []
-        # nearest neighbore threshold distance
-        minDistance = 2000
-        for point in cliped.getFeatures():
-            pointGeo = point.geometry()
-            nearest_neighbor_id = index.nearestNeighbor(pointGeo,1)[0]
-            nearest_neighbor = source_vl.getFeature(nearest_neighbor_id)
-            nearest_neighbor_distance = nearest_neighbor.geometry().distance(pointGeo)
-            if nearest_neighbor_distance < minDistance:
-                obstructed_ids.append(nearest_neighbor_id)        
+        QgsProject.instance().addMapLayer(outputs['nearest']['OUTPUT'])
         
-        # Seek up and downstream segments (1km)
+        obstructed_ids = [feature[prefix + self.FID] for feature in outputs['nearest']['OUTPUT'].getFeatures()]
+        obstructed_ids = Counter(obstructed_ids)
         
-        #add new field to streams and output
+        print(obstructed_ids)
         
-        
-    ######################################################################################################
-        if True:
-            # Compute the number of steps to display within the progress bar and
-            # get features from source
-            total = 100.0 / cliped.featureCount() if cliped.featureCount() else 0
-            features = [f for f in source.getFeatures()]
-            print(len(features))
-            for current, feature in enumerate(features):
-                # Stop the algorithm if cancel button has been clicked
-                if feedback.isCanceled():
-                    break
-                if feature.id() in obstructed_ids:
+        # Compute the number of steps to display within the progress bar and
+        # get features from source
+        total = 100.0 / source.featureCount() if source.featureCount() else 0
+        features = [f for f in source.getFeatures()]
+        for current, feature in enumerate(features):
+            # Stop the algorithm if cancel button has been clicked
+            if feedback.isCanceled():
+                break
+            id = feature.id()
+            if id in obstructed_ids:
+                if obstructed_ids[id] == 1:
                     indx_f1 = 2
-                else:
-                    indx_f1 = 0
-                
-                feature.setAttributes(
-                    feature.attributes() + [indx_f1]
-                )
-                
-                # Add a feature in the sink
-                sink.addFeature(feature, QgsFeatureSink.FastInsert)
+                elif obstructed_ids[id] > 1:
+                    indx_f1 = 4
+            else:
+                indx_f1 = 0
+            
+            feature.setAttributes(
+                feature.attributes() + [indx_f1]
+            )
+            
+            # Add a feature in the sink
+            sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-                # Update the progress bar
-                feedback.setProgress(int(current * total))
+            # Update the progress bar
+            feedback.setProgress(int(current * total))
 
         return {self.OUTPUT: dest_id}
     
