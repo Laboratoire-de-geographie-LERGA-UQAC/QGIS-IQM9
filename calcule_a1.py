@@ -22,7 +22,7 @@ from qgis.core import QgsCoordinateReferenceSystem
 import processing
 
 
-class IndiceA1A2(QgsProcessingAlgorithm):
+class IndiceA1(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
