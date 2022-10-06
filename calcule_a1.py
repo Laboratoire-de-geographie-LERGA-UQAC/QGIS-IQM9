@@ -1,6 +1,6 @@
 """
 Model exported as python.
-Name : Indice A1 A2
+Name : Indice A1
 Group : 
 With QGIS : 32601
 """
@@ -172,7 +172,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             fid = feature[id_field]
             # For each pour point
             # Compute the percentage of forests and agriculture lands in the draining area
-            # Then compute index_A1_A2 and add it in a new field to the river network
+            # Then compute index_A1 and add it in a new field to the river network
             if feedback.isCanceled():
                 return {}
             
@@ -225,7 +225,7 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'TARGET_EXTENT': None,
                 'X_RESOLUTION': None,
                 'Y_RESOLUTION': None,
-                'OUTPUT': f"tmp/aire_drainage_landuse_allclasses/lanuse_drainage_{fid}.tif" #QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT': f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" #QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
@@ -247,6 +247,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             
             table = outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE']
             
+            
             forest_area = 0
             agri_area = 0
             
@@ -259,26 +260,26 @@ class IndiceA1(QgsProcessingAlgorithm):
                         agri_area = feat[2]/tot_area
                 
                 
-                # Assigne index A1 A2
+                # Assigne index A1
                 if forest_area >= 0.9:
-                    IndiceA1A2 = 0
+                    indiceA1 = 0
                 elif forest_area >= 0.66 and agri_area <= 0.33:
-                    IndiceA1A2 = 1
+                    indiceA1 = 1
                 elif forest_area <= 0.66 and agri_area >= 0.33:
-                    IndiceA1A2 = 2
+                    indiceA1 = 2
                 elif forest_area <= 0.33:
-                    IndiceA1A2 = 4
+                    indiceA1 = 4
                 elif forest_area <= 0.1:
-                    IndiceA1A2 = 5
+                    indiceA1 = 5
                 else:
-                    IndiceA1A2 = 5
+                    indiceA1 = 5
             else:
                 # TODO : replace by null value
-                IndiceA1A2 = 5
+                indiceA1 = 5
             
             # Add forest area to new featuer
             feature.setAttributes(
-                    feature.attributes() + [IndiceA1A2]
+                    feature.attributes() + [indiceA1]
             )
             
             # Add modifed feature to sink
@@ -305,4 +306,4 @@ class IndiceA1(QgsProcessingAlgorithm):
         return 'iqm'
 
     def createInstance(self):
-        return IndiceA1A2()
+        return IndiceA1()
