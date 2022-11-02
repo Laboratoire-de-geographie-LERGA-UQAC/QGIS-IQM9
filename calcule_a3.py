@@ -10,6 +10,7 @@ from qgis.core import (QgsProcessing,
                        QgsField,
                        QgsFeatureSink,
                        QgsVectorLayer,
+                       QgsFeatureRequest,
                       )
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -83,14 +84,7 @@ class IndiceA3(QgsProcessingAlgorithm):
         }
         outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
                     
-        # Get segments buffers
-        params = {'INPUT':parameters['stream_network'],
-            'DISTANCE':15,'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-            'OUTPUT':'TEMPORARY_OUTPUT'
-        }
-        outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
-        
-        buffer = QgsVectorLayer(outputs['buffer']['OUTPUT'], 'buffer', 'ogr')
+
         
         
         ############ LOOP GOES HERE ############
@@ -104,15 +98,26 @@ class IndiceA3(QgsProcessingAlgorithm):
         id_field = 'Id'
         for current, feature in enumerate(features):
             fid = feature[id_field]
+            
             # For each pour point
             # Compute the percentage of forests and agriculture lands in the draining area
             # Then compute index_A1 and add it in a new field to the river network
             if feedback.isCanceled():
                 return {}
             
-            # Select buffer feature by it's id
-            buffer.selectByIds([feature.id()])
-            sourceDef = QgsProcessingFeatureSourceDefinition(buffer.id(), True)
+                    # Get segments buffers
+            single_segment = source.materialize(QgsFeatureRequest().setFilterFids([fid]))
+            buffer_width = feature['width'] * 2.5 # twice river width on each side
+            params = {'INPUT':single_segment,
+                'DISTANCE':buffer_width,
+                'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
+                'OUTPUT':'TEMPORARY_OUTPUT'
+            }
+            outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
+            print(outputs['buffer'])
+            print(outputs['buffer']['OUTPUT'])
+            
+            #buffer = QgsVectorLayer(outputs['buffer']['OUTPUT'], 'buffer', 'ogr')
             
             # Clip landuse by buffer           
             alg_params = {
@@ -122,7 +127,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'EXTRA': '',
                 'INPUT': outputs['ReducedLanduse']['OUTPUT'],
                 'KEEP_RESOLUTION': True,
-                'MASK': sourceDef,
+                'MASK': outputs['buffer']['OUTPUT'],
                 'MULTITHREADING': False,
                 'NODATA': None,
                 'OPTIONS': '',
@@ -132,10 +137,12 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'TARGET_EXTENT': None,
                 'X_RESOLUTION': None,
                 'Y_RESOLUTION': None,
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT': f"tmp/mask_{fid}.tif"#QgsProcessing.TEMPORARY_OUTPUT
             }
-            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
+            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+            ############################
+            continue
+            ############################
             # Landuse unique values report
             alg_params = {
                 'BAND': 1,
@@ -155,11 +162,10 @@ class IndiceA3(QgsProcessingAlgorithm):
             class_areas = {feat[0]:feat[2] for feat in table.getFeatures()}
             land_area = sum(class_areas.values()) - class_areas.get(2,0)
             anthro_area = class_areas.get(3, 0) + class_areas.get(2, 0)
-                
-            ratio = anthro_area / land_area
-            
+                           
             indiceA3 = 0
-            if tot_area != 0:              
+            if land_area != 0:              
+                ratio = anthro_area / land_area
                 # Assigne index A3
                 if ratio >= 0.9:
                     indiceA3 = 4
