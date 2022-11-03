@@ -38,7 +38,10 @@ class IndiceA3(QgsProcessingAlgorithm):
         outputs = {}
         
         # Create temporary file locations
-        tmp = {}
+        tmp = {
+            'table':Ntf(suffix="table"),
+            'buffer':Ntf(suffix="buffer")
+        }
                 
         # Define source stream net 
         source = self.parameterAsSource(parameters, 'stream_network', context)
@@ -59,8 +62,8 @@ class IndiceA3(QgsProcessingAlgorithm):
                
         # LandUse classes of interest
         # MELCC landuse classification
-        # 1:forestier, 2:aggricole, 3:anthropique, 4:aquatique
-        CLASSES = ['50','56','1','210','235','1','501','735','1','101','199','2', '300', '360', '3']
+        # 1:Autres, 2:aggricole, 3:anthropique, 4:aquatique
+        CLASSES = ['101','199','2', '300', '360', '3', '20', '27', '4']
         # Extend classes to other environments
         table = CLASSES.copy()
         for i in [2, 4, 5, 6, 7, 8]:
@@ -75,7 +78,7 @@ class IndiceA3(QgsProcessingAlgorithm):
         alg_params = {
             'DATA_TYPE': 0,  # Byte
             'INPUT_RASTER': parameters['landuse'],
-            'NODATA_FOR_MISSING': True,
+            'NODATA_FOR_MISSING': False,
             'NO_DATA': 0,
             'RANGE_BOUNDARIES': 2,  # min <= value <= max
             'RASTER_BAND': 1,
@@ -107,18 +110,17 @@ class IndiceA3(QgsProcessingAlgorithm):
             
                     # Get segments buffers
             single_segment = source.materialize(QgsFeatureRequest().setFilterFids([fid]))
-            buffer_width = feature['width'] * 2.5 # twice river width on each side
+            buffer_width = max(
+                feature['width'] * 2.5, # twice river width on each side
+                feature['width'] * 0.5 + 15
+            )
             params = {'INPUT':single_segment,
                 'DISTANCE':buffer_width,
                 'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-                'OUTPUT':'TEMPORARY_OUTPUT'
+                'OUTPUT': tmp['buffer'].name
             }
             outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
-            print(outputs['buffer'])
-            print(outputs['buffer']['OUTPUT'])
-            
-            #buffer = QgsVectorLayer(outputs['buffer']['OUTPUT'], 'buffer', 'ogr')
-            
+
             # Clip landuse by buffer           
             alg_params = {
                 'ALPHA_BAND': False,
@@ -137,32 +139,30 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'TARGET_EXTENT': None,
                 'X_RESOLUTION': None,
                 'Y_RESOLUTION': None,
-                'OUTPUT': f"tmp/mask_{fid}.tif"#QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT': f"tmp/land_use_clip_{fid}.tif"#QgsProcessing.TEMPORARY_OUTPUT
             }
-            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            ############################
-            continue
-            ############################
+            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            
             # Landuse unique values report
             alg_params = {
                 'BAND': 1,
                 'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
-                'OUTPUT_TABLE': QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT_TABLE': tmp['table'].name
             }
-            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            
-            # Compute buffer area
-            
-            
-            
+            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             
             # Here we compute forest and agri area, the add to new feture
-            table = outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE']
+            table = QgsVectorLayer(
+                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],            
+                'table', 'ogr'
+            )
             
-            class_areas = {feat[0]:feat[2] for feat in table.getFeatures()}
-            land_area = sum(class_areas.values()) - class_areas.get(2,0)
+            class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
+            land_area = sum(class_areas.values()) - class_areas.get(4,0)
             anthro_area = class_areas.get(3, 0) + class_areas.get(2, 0)
-                           
+            
+            
+            
             indiceA3 = 0
             if land_area != 0:              
                 ratio = anthro_area / land_area
@@ -174,7 +174,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 elif ratio >= 0.33:
                     indiceA3 = 2
                 elif ratio >= 0.1:
-                    indiceA3 = 1             
+                    indiceA3 = 1            
             
             # Add forest area to new featuer
             feature.setAttributes(
@@ -184,8 +184,8 @@ class IndiceA3(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
             
-            print(f'{current}/{feature_count}')
-            
+            print(f'{fid}/{feature_count}')
+            print(f"{ratio=}\n{land_area=}\n{anthro_area=}\n\n")
         # Clear temporary files
         for tempfile in tmp.values():
             tempfile.close()
