@@ -40,12 +40,12 @@ class IndiceA1(QgsProcessingAlgorithm):
         results = {}
         outputs = {}
         
-        # Create temporary file locations
+        # Dictionnary that will contain all temporary file locations
         tmp = {}
         
-        # Create tmp File #1 for D8 Creation
+        # Create necessary temporary file locations 
         tmp['d8'] = Ntf(suffix="d8.tif")
-        tmp['watershed'] = Ntf(suffix="watershed.tif")
+        tmp['watershed'] = Ntf(suffix="watershed")
         
         # Define source stream net 
         source = self.parameterAsSource(parameters, 'stream_network', context)
@@ -120,8 +120,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             return {}
         
         # D8 Created #
-        
-        
+            
         # Reclassify land use
         alg_params = {
             'DATA_TYPE': 0,  # Byte
@@ -230,34 +229,33 @@ class IndiceA1(QgsProcessingAlgorithm):
             outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
             # Landuse unique values report
+            tmp['table'] = Ntf(suffix="table")
             alg_params = {
                 'BAND': 1,
                 'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
-                'OUTPUT_TABLE': QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT_TABLE': tmp['table'].name
             }
-            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             
-            # Compute watershed total area
+            # Create layers from source/path
             watershed_poly = QgsVectorLayer(outputs['PolygonizeRasterToVector']['OUTPUT'], 'poly', 'ogr')
+            table = QgsVectorLayer(
+                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],            
+                'table', 'ogr'
+            )
+            
+            # Here we compute watershed, forest and agri area, the add to new feture
             tot_area = sum([feat.geometry().area() for feat in watershed_poly.getFeatures()])
-            
-                
-
-            # Here we compute forest and agri area, the add to new feture
-            
-            table = outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE']
-            
-            
             forest_area = 0
             agri_area = 0
             
             if tot_area != 0:
                 # Get forest and agri areas
                 for feat in table.getFeatures():
-                    if feat[0] == 1:
-                        forest_area = feat[2]/tot_area
-                    elif feat[0] == 2:
-                        agri_area = feat[2]/tot_area
+                    if feat['value'] == 1:
+                        forest_area = feat['m2']/tot_area
+                    elif feat['value'] == 2:
+                        agri_area = feat['m2']/tot_area
                 
                 
                 # Assigne index A1
