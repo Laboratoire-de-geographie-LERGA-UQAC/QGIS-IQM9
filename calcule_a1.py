@@ -45,7 +45,7 @@ class IndiceA1(QgsProcessingAlgorithm):
         
         # Create necessary temporary file locations 
         tmp['d8'] = Ntf(suffix="d8.tif")
-        tmp['watershed'] = Ntf(suffix="watershed")
+        tmp['watershed'] = Ntf(suffix="watershed.tif")
         
         # Define source stream net 
         source = self.parameterAsSource(parameters, 'stream_network', context)
@@ -193,7 +193,7 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'pour_pts': outputs['single_point']['OUTPUT'],
                 'output': tmp['watershed'].name
             }
-            outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback)        
+            outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)        
             
             # Polygonize (raster to vector)
             alg_params = {
@@ -224,7 +224,7 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'TARGET_EXTENT': None,
                 'X_RESOLUTION': None,
                 'Y_RESOLUTION': None,
-                'OUTPUT': f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" #QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" #QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
@@ -273,7 +273,7 @@ class IndiceA1(QgsProcessingAlgorithm):
                     indiceA1 = 5
             else:
                 # TODO : replace by null value
-                indiceA1 = 5
+                indiceA1 = -1
             
             # Add forest area to new featuer
             feature.setAttributes(
@@ -283,7 +283,8 @@ class IndiceA1(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
             
-            print(f'{current}/{feature_count}')
+            print(f'{fid}/{feature_count}')
+            print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
             
         # Clear temporary files
         for tempfile in tmp.values():
