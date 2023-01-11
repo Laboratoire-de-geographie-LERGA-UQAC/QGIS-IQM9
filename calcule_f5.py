@@ -31,13 +31,13 @@ from qgis.core import (QgsProcessing,
 class IndiceF5(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        #self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-        #self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
         self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterNumber('transectsegment', 'Transect/segment', optional=True, type=QgsProcessingParameterNumber.Integer, minValue=1, maxValue=100, defaultValue=10))
         #self.addParameter(QgsProcessingParameterFeatureSink('Norm', 'Norm', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Points', 'Points', type=QgsProcessing.TypeVectorPoint, createByDefault=True, supportsAppend=True, defaultValue=None))
+        #self.addParameter(QgsProcessingParameterFeatureSink('Points', 'Points', type=QgsProcessing.TypeVectorPoint, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -46,7 +46,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         results = {}
         outputs = {}
         tmp = {
-            'points':Ntf(suffix="pts"),
+            'points':Ntf(suffix="pts.gpkg"),
             'normals':Ntf(suffix="normals"),
         }
         
@@ -72,12 +72,15 @@ class IndiceF5(QgsProcessingAlgorithm):
             # Materialize river feature
             single_segment = source.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
             
+            """
+            #Evaluating an expression
             
+            expr = QgsExpression('length($geometry)')
             feat_context = QgsExpressionContext()
             feat_context.setFeature(segment)
             print("Transect/segment : ", type(parameters['transectsegment']))
-            
-            print("Evaluated Expression : ", exp.evaluate(feat_context))
+            print("Evaluated Expression : ", expr.evaluate(feat_context))
+            """
             
             # Points along geometry
             alg_params = {
@@ -85,27 +88,62 @@ class IndiceF5(QgsProcessingAlgorithm):
                 'END_OFFSET': 0,
                 'INPUT': single_segment,
                 'START_OFFSET': 0,
-                #'OUTPUT': tmp['points'].name
-                'OUTPUT': parameters['Points']
+                'OUTPUT':QgsProcessing.TEMPORARY_OUTPUT
+                #'OUTPUT': tmp['points'].name,
+                #'OUTPUT': parameters['Points']
             }
             outputs['PointsAlongGeometry'] = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            # Take ownership of child temporary layer
+            points = context.takeResultLayer(outputs['PointsAlongGeometry']['OUTPUT'])
+            outputs['PointsAlongGeometry']['OUTPUT'] = points
             
-            points = QgsVectorLayer(outputs['PointsAlongGeometry']['OUTPUT'], 'points', 'ogr')
-            for point in points.getFeatures():
-                print(f"    {point['angle']}")
+            """
+            TESTING EXPRESSION HERE 
+                    VVV
             
-        """
+            for point in points.getFeatures():                
+                #Evaluating an expression
+                print("ptrefwidth", parameters["ptref_widths"])
+                expr = QgsExpression(f'overlay_nearest(\n\t\t\'{parameters["ptref_widths"]}\',\n\t\tLargeur_mod\n\t)[0]')
+                feat_context = QgsExpressionContext()
+                feat_context.setFeature(point)
+                print("Evaluated Expression : ", expr.evaluate(feat_context))
+            """
+            
+
             # Geometry by expression
             alg_params = {
-                'EXPRESSION': 'with_variable(\n\t\'len\',\n\toverlay_nearest(\n\t\t@ptref_widths,\n\t\tLargeur_mod\n\t)[0] *  @ratio ,\n\textend(\n\t\tmake_line(\n\t\t\t$geometry,\n\t\t\tproject(\n\t\t\t\t$geometry,\n\t\t\t\t@len,\n\t\t\t\tradians("angle" - 90)\n\t\t\t)\n\t\t),\n\t\t@len,\n\t\t0\n\t)\n)',
+                'EXPRESSION':f"with_variable('len',overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0] *  {parameters['ratio']},extend(make_line($geometry,project($geometry,@len,radians(\"angle\" - 90))),@len,0))",
+                #'EXPRESSION':"
                 'INPUT': outputs['PointsAlongGeometry']['OUTPUT'],
+                #'INPUT': tmp['points'].name,
                 'OUTPUT_GEOMETRY': 1,  # Line
                 'WITH_M': False,
                 'WITH_Z': False,
-                'OUTPUT': tmp['normals'].name
+                #'OUTPUT': tmp['normals'].name
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+                #'OUTPUT':parameters['Norm']
             }
             outputs['GeometryByExpression'] = processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
+            # Take ownership of child temporary layer
+            normals = context.takeResultLayer(outputs['GeometryByExpression']['OUTPUT'])
+            outputs['GeometryByExpression']['OUTPUT'] = normals
+            
+            print(normals.featureCount())
+            print("Valid :", normals.isValid())
+            
+            
+            for normal in normals.getFeatures():
+                #Evaluating an expression
+                print("bande_riveraine_polly :", parameters["bande_riveraine_polly"])
+                expr = QgsExpression(
+                f"max(0,length(\n\tsegments_to_lines(\n\t\tintersection(\n\t\t\t$geometry,\n\t\t\tcollect_geometries(\n\t\t\t\t overlay_intersects(\n\t\t\t\t\t@bande_riveraine_polly,\n\t\t\t\t\t$geometry\n\t\t\t\t)\n\t\t\t)\n\t\t)\n\t)\n))",
+                )
+                feat_context = QgsExpressionContext()
+                feat_context.setFeature(point)
+                print("Evaluated Expression : ", expr.evaluate(feat_context))
+            
+            """
             # Field calculator
             alg_params = {
                 'FIELD_LENGTH': 9,
@@ -120,7 +158,7 @@ class IndiceF5(QgsProcessingAlgorithm):
             results['Norm'] = outputs['FieldCalculator']['OUTPUT']
         """
         
-        results['PointsAlongGeometry'] = outputs['PointsAlongGeometry']['OUTPUT']
+        
         #Clear temporary files
         for temp in tmp.values():
             temp.close()
