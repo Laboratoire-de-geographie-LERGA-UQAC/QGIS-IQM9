@@ -1,7 +1,7 @@
 """
 Model exported as python.
 Name : Indice A3
-Group : 
+Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
@@ -32,13 +32,14 @@ class IndiceA3(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Cours d\'eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink('sink', 'Output', defaultValue=None))
 
+
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
         # overall progress through the model
         feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
         results = {}
         outputs = {}
-        
+
         # Create temporary file locations
         tmp = {
             'table':Ntf(suffix="table"),
@@ -46,14 +47,14 @@ class IndiceA3(QgsProcessingAlgorithm):
             'd8':Ntf(suffix="D8.tif"),
             'mainWatershed':Ntf(suffix="watershed.tif"),
         }
-                
-        # Define source stream net 
+
+        # Define source stream net
         source = self.parameterAsSource(parameters, 'stream_network', context)
-        
+
         # Define Sink fields
         sink_fields = source.fields()
         sink_fields.append(QgsField("Indice A3", QVariant.Int))
-        
+
         # Define sink
         (sink, dest_id) = self.parameterAsSink(
             parameters,
@@ -63,13 +64,13 @@ class IndiceA3(QgsProcessingAlgorithm):
             source.wkbType(),
             source.sourceCrs()
         )
-               
-               
+
+
         # Defin dams layer
         dams = self.parameterAsVectorLayer(parameters, 'dams', context)
         assert dams.isValid(), "dams not valid"
-        
-        
+
+
         # LandUse classes of interest
         # MELCC landuse classification
         # 1:Autres, 2:aggricole, 3:anthropique, 4:aquatique
@@ -83,7 +84,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                     c += i * 1000
                 table.append(str(c))
 
-        
+
         # Reclassify land use
         alg_params = {
             'DATA_TYPE': 0,  # Byte
@@ -96,7 +97,7 @@ class IndiceA3(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-                    
+
 
         ############ Calcule du D8 Pointer ############
         # WBT : Create D8 from dem
@@ -127,7 +128,7 @@ class IndiceA3(QgsProcessingAlgorithm):
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
             return {}
-            
+
         # BreachDepressions
         alg_params = {
             'dem': outputs['Fillburn']['output'],
@@ -138,8 +139,8 @@ class IndiceA3(QgsProcessingAlgorithm):
             'output': tmp['d8'].name
         }
         outputs['Breachdepressions'] = processing.run(
-            'wbt:BreachDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-    
+            'wbt:BreachDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
             return {}
@@ -151,8 +152,8 @@ class IndiceA3(QgsProcessingAlgorithm):
             'output': tmp['d8'].name
         }
         outputs['D8pointer'] = processing.run(
-            'wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            
+            'wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
         # Snap dams to river network
         # Snapped Dams
         alg_params = {
@@ -163,7 +164,7 @@ class IndiceA3(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-       
+
         feedback.setCurrentStep(4)
         if feedback.isCanceled():
             return {}
@@ -175,25 +176,26 @@ class IndiceA3(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractSpecificVertex'] = processing.run(
-            'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-        
+            'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
         feedback.setCurrentStep(5)
         if feedback.isCanceled():
             return {}
-            
+
+        print("GOING INTO LOOP")
         # Looping through vertices
         features = [f for f in source.getFeatures()]
         feature_count = source.featureCount()
         id_field = 'Id'
         for current, feature in enumerate(features):
             fid = feature[id_field]
-            
+
             # For each pour point
             # Compute the percentage of forests and agriculture lands in the draining area
             # Then compute index_A1 and add it in a new field to the river network
             if feedback.isCanceled():
                 return {}
-            
+
             # Find number of dames in watershed
             # Get segment pour point
             # Extract By Attribute
@@ -205,8 +207,8 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['single_point'] = processing.run(
-                'native:extractbyattribute', alg_params, context=context, feedback=feedback)
-            
+                'native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
             # Compute watershed from d8
             alg_params = {
                 'd8_pntr': tmp['d8'].name,
@@ -215,8 +217,8 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'output': tmp['mainWatershed'].name
             }
             outputs['mainWatershed'] = processing.run(
-                'wbt:Watershed', alg_params, context=context, feedback=feedback)
-                
+                'wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
             # Polygonize watershed
             alg_params = {
                 'BAND': 1,
@@ -224,45 +226,61 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'EXTRA': '',
                 'FIELD': 'DN',
                 'INPUT': outputs['mainWatershed']['output'],
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT': f"tmp/polyWatershed_{fid}.gpkg"#tmp['mainWatershed'].name
             }
             outputs['mainWatershedPoly'] = processing.run(
-                'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            
+                'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+                
+            # materialize segment
+            single_segment = source.materialize(QgsFeatureRequest().setFilterFids([fid]))
+            # 1 Km buffer around river
+            alg_params = {
+                'INPUT': single_segment,
+                'DISTANCE':1000,
+                'SEGMENTS':5,'END_CAP_STYLE':0,
+                'JOIN_STYLE':0,'MITER_LIMIT':2,
+                'DISSOLVE':True,
+                'OUTPUT':f"tmp/buffer{fid}.gpkg"#tmp['buffer'].name
+            }
+            outputs['damBuffer'] = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+            # Clip watershed by buffer
+            alg_params = {
+                'INPUT': outputs['mainWatershedPoly']['OUTPUT'],
+                'OVERLAY': outputs['damBuffer']['OUTPUT'],
+                'OUTPUT': f"tmp/clipped_buffer_{fid}.gpkg"#tmp['buffer'].name
+                }
+            outputs['buffer_clip'] = processing.run("native:clip", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+
             # Count number of dames in watershed
             alg_params = {
-                'INPUT':parameters['dams'],
+                'INPUT':dams,
                 'PREDICATE':[6],
-                'INTERSECT':outputs['mainWatershedPoly']['OUTPUT'],
+                'INTERSECT':outputs['buffer_clip']['OUTPUT'],
                 'METHOD':0
             }
-            processing.run("native:selectbylocation", alg_params)
+            processing.run("native:selectbylocation", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             dam_count = dams.selectedFeatureCount()
-            
-            
-            # Compute watershed total area
-            mainWatershedPoly = QgsVectorLayer(
-                outputs['mainWatershedPoly']['OUTPUT'], 'vector main watershed', 'ogr')
-            main_area = sum([feat.geometry().area()
-                           for feat in mainWatershedPoly.getFeatures()])
-            watershed_spe_length = main_area ** 0.5
-            
-            
+
+
+            #### LAND USE ANALYSIS
             # analyse land use on sides of stream
             # Get segments buffers
-            single_segment = source.materialize(QgsFeatureRequest().setFilterFids([fid]))
+
             buffer_width = max(
                 feature['width'] * 2.5, # twice river width on each side
                 feature['width'] * 0.5 + 15
             )
-            params = {'INPUT':single_segment,
+            params = {
+                'INPUT':single_segment,
                 'DISTANCE':buffer_width,
                 'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
                 'OUTPUT': tmp['buffer'].name
             }
             outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
 
-            # Clip landuse by buffer           
+            # Clip landuse by buffer
             alg_params = {
                 'ALPHA_BAND': False,
                 'CROP_TO_CUTLINE': True,
@@ -283,7 +301,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT#f"tmp/land_use_clip_{fid}.tif"#
             }
             outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-            
+
             # Landuse unique values report
             alg_params = {
                 'BAND': 1,
@@ -291,21 +309,21 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'OUTPUT_TABLE': tmp['table'].name
             }
             outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-            
+
             # Here we compute forest and agri area, the add to new feture
             table = QgsVectorLayer(
-                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],            
+                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],
                 'table', 'ogr'
             )
-            
+
             class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
             land_area = sum(class_areas.values()) - class_areas.get(4,0)
             anthro_area = class_areas.get(3, 0) + class_areas.get(2, 0)
-            
-            
-            
+
+
+
             indiceA3 = 0
-            if land_area != 0:              
+            if land_area != 0:
                 ratio = anthro_area / land_area
                 # Assigne index A3
                 if ratio >= 0.9:
@@ -315,40 +333,38 @@ class IndiceA3(QgsProcessingAlgorithm):
                 elif ratio >= 0.33:
                     indiceA3 = 2
                 elif ratio >= 0.1:
-                    indiceA3 = 1            
-            
-            
+                    indiceA3 = 1
+
+
             # Add penality
-            dam_ratio = dam_count * 1000 / watershed_spe_length
-            if dam_ratio == 0:
-                dam_penality = 0 
-            elif 0 < dam_ratio <= 1:
+            if dam_count < 1:
+                dam_penality = 0
+            elif dam_count == 1:
                 dam_penality = 2
-            elif dam_ratio > 1:
+            elif dam_count > 1:
                 dam_penality = 4
             indiceA3 += dam_penality
-            
-            
+
+
             # Add forest area to new featuer
             feature.setAttributes(
                     feature.attributes() + [indiceA3]
             )
-            
+
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
-            
+
             print(f'{fid}/{feature_count}')
-            print(f"{dam_penality=}")
-            print(f"{dam_count=}\n{main_area=}\n{dam_ratio=}\n\n")
-            #print(f"{ratio=}\n{land_area=}\n{anthro_area=}\n\n")
+            print(f"{dam_count=}\n {dam_penality=}\n")
+            print(f"{ratio=}\n{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
         # Clear temporary files
         for tempfile in tmp.values():
             tempfile.close()
-        
+
         return {'IQM': dest_id}
 
     def name(self):
-        return 'Indice A3'
+        return 'indicea3'
 
     def displayName(self):
         return 'Indice A3'

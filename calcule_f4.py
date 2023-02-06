@@ -67,7 +67,7 @@ class calculerIc(QgsProcessingAlgorithm):
 
         #Adding new field to output
         sink_fields = source.fields()
-        sink_fields.append(QgsField("Indice A4", QVariant.Int))
+        sink_fields.append(QgsField("Indice A7A8", QVariant.Int))
 
         (sink, dest_id) = self.parameterAsSink(
             parameters,
@@ -115,16 +115,16 @@ class calculerIc(QgsProcessingAlgorithm):
                     IC = min(IC, 2.5)
 
                 if IC >= 1.5:
-                    indice_A4 = 0
+                    indice_A7A8 = 0
                 elif IC >= 1.25:
-                    indice_A4 = 1
+                    indice_A7A8 = 1
                 elif IC >= 1.05:
-                    indice_A4 = 2
+                    indice_A7A8 = 2
                 else:
-                    indice_A4 = 3
+                    indice_A7A8 = 3
 
                 feature.setAttributes(
-                    feature.attributes() + [indice_A4]
+                    feature.attributes() + [indice_A7A8]
                 )
 
                 # Add a feature in the sink
@@ -145,10 +145,10 @@ class calculerIc(QgsProcessingAlgorithm):
         return calculerIc()
 
     def name(self):
-        return 'indicea4'
+        return 'indicef4'
 
     def displayName(self):
-        return self.tr('Indice A4')
+        return self.tr('Indice F4')
 
     def group(self):
         return self.tr('IQM')

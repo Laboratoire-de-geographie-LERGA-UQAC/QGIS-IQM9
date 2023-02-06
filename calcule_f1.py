@@ -172,7 +172,7 @@ class calculerF1(QgsProcessingAlgorithm):
         return 'calculerf1'
 
     def displayName(self):
-        return self.tr('Calcule F1')
+        return self.tr('Indice F1')
 
     def group(self):
         return self.tr('IQM')

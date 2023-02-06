@@ -70,20 +70,9 @@ class IndiceF5(QgsProcessingAlgorithm):
         # feature count for feedback
         feature_count = source.featureCount()
         
-        # For each segment
         for segment in source.getFeatures():
-            # Materialize river feature
+            # Materialize segment feature
             single_segment = source.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
-            
-            """
-            #Evaluating an expression
-            
-            expr = QgsExpression('length($geometry)')
-            feat_context = QgsExpressionContext()
-            feat_context.setFeature(segment)
-            print("Transect/segment : ", type(parameters['transectsegment']))
-            print("Evaluated Expression : ", expr.evaluate(feat_context))
-            """
             
             # Points along geometry
             alg_params = {
@@ -97,25 +86,10 @@ class IndiceF5(QgsProcessingAlgorithm):
             }
             outputs['PointsAlongGeometry'] = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             
-            
             # Take ownership of child temporary layer
             #points = context.takeResultLayer(outputs['PointsAlongGeometry']['OUTPUT'])
             points = QgsVectorLayer(tmp['points'].name, 'points', 'ogr')
-            outputs['PointsAlongGeometry']['OUTPUT'] = points
-            
-            """
-            TESTING EXPRESSION HERE 
-                    VVV
-            
-            for point in points.getFeatures():                
-                #Evaluating an expression
-                print("ptrefwidth", parameters["ptref_widths"])
-                expr = QgsExpression(f'overlay_nearest(\n\t\t\'{parameters["ptref_widths"]}\',\n\t\tLargeur_mod\n\t)[0]')
-                feat_context = QgsExpressionContext()
-                feat_context.setFeature(point)
-                print("Evaluated Expression : ", expr.evaluate(feat_context))
-            """
-            
+            outputs['PointsAlongGeometry']['OUTPUT'] = points            
 
             # Geometry by expression
             alg_params = {

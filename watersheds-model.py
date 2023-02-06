@@ -144,10 +144,10 @@ class Networkwatershed(QgsProcessingAlgorithm):
         return 'network-watershed'
 
     def group(self):
-        return 'IQM'
+        return ''
 
     def groupId(self):
-        return 'IQM'
+        return ''
 
     def createInstance(self):
         return Networkwatershed()

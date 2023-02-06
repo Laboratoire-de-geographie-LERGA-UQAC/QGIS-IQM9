@@ -68,7 +68,7 @@ class DissolveProcessingAlgorithm(QgsProcessingAlgorithm):
         Returns the name of the group this algorithm belongs to. This string
         should be localised.
         """
-        return self.tr('scripts')
+        return self.tr('')
 
     def groupId(self):
         """
@@ -78,7 +78,7 @@ class DissolveProcessingAlgorithm(QgsProcessingAlgorithm):
         contain lowercase alphanumeric characters only and no spaces or other
         formatting characters.
         """
-        return 'scripts'
+        return ''
 
     def shortHelpString(self):
         """

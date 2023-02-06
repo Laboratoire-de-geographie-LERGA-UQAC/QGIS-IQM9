@@ -1,7 +1,7 @@
 """
 Model exported as python.
 Name : Indice A1
-Group : 
+Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
@@ -39,21 +39,21 @@ class IndiceA1(QgsProcessingAlgorithm):
         feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
         results = {}
         outputs = {}
-        
+
         # Dictionnary that will contain all temporary file locations
         tmp = {}
-        
-        # Create necessary temporary file locations 
+
+        # Create necessary temporary file locations
         tmp['d8'] = Ntf(suffix="d8.tif")
         tmp['watershed'] = Ntf(suffix="watershed.tif")
-        
-        # Define source stream net 
+
+        # Define source stream net
         source = self.parameterAsSource(parameters, 'stream_network', context)
-        
+
         # Define Sink fields
         sink_fields = source.fields()
         sink_fields.append(QgsField("Indice A1", QVariant.Int))
-        
+
         # Define sink
         (sink, dest_id) = self.parameterAsSink(
             parameters,
@@ -63,7 +63,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             source.wkbType(),
             source.sourceCrs()
         )
-        
+
         # WBT : Create D8 from dem
         # FillBurn
         alg_params = {
@@ -72,7 +72,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             'output': tmp['d8'].name
         }
         outputs['Fillburn'] = processing.run('wbt:FillBurn', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-        
+
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
             return {}
@@ -118,9 +118,9 @@ class IndiceA1(QgsProcessingAlgorithm):
         feedback.setCurrentStep(4)
         if feedback.isCanceled():
             return {}
-        
+
         # D8 Created #
-            
+
         # Reclassify land use
         alg_params = {
             'DATA_TYPE': 0,  # Byte
@@ -129,7 +129,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             'NO_DATA': 0,
             'RANGE_BOUNDARIES': 2,  # min <= value <= max
             'RASTER_BAND': 1,
-            'TABLE': [ 
+            'TABLE': [
                 '50','56','1','210','235','1','501','735','1','101','199','2',
                 '2050','2056','1','2210','2235','1','2501','2735','1','2101','2199','2',
                 '4050','4056','1','4210','4235','1','4501','4735','1','4101','4199','2',
@@ -142,7 +142,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-        
+
         # Extract specific vertex
         # TODO : try and remove is_child_algorithm
         alg_params = {
@@ -151,30 +151,30 @@ class IndiceA1(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-        
+
         feedback.setCurrentStep(5)
         if feedback.isCanceled():
             return {}
-        
+
         ############ LOOP GOES HERE ############
         # Looping through vertices
         #fid_index = outputs['ExtractSpecificVertex']['OUTPUT'].fields().indexFromName('fid')
         #fid_ids = outputs['ExtractSpecificVertex']['OUTPUT'].uniqueValues(fid_index)
-        
+
         vertices = outputs['ExtractSpecificVertex']['OUTPUT']
-        
+
         #for fid in list(fid_ids)[189:192]:
         features = [f for f in source.getFeatures()]
         feature_count = source.featureCount()
         id_field = 'Id'
         for current, feature in enumerate(features):
-            fid = feature[id_field]
+            fid = feature.id()
             # For each pour point
             # Compute the percentage of forests and agriculture lands in the draining area
             # Then compute index_A1 and add it in a new field to the river network
             if feedback.isCanceled():
                 return {}
-            
+
             # Extract By Attribute
             alg_params = {
             'FIELD': id_field,
@@ -183,9 +183,9 @@ class IndiceA1(QgsProcessingAlgorithm):
             'VALUE': str(fid),
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
-            
+
             outputs['single_point']= processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback)
-            
+
             # Watershed
             alg_params = {
                 'd8_pntr': tmp['d8'].name,
@@ -193,8 +193,8 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'pour_pts': outputs['single_point']['OUTPUT'],
                 'output': tmp['watershed'].name
             }
-            outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)        
-            
+            outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
             # Polygonize (raster to vector)
             alg_params = {
                 'BAND': 1,
@@ -205,7 +205,7 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            
+
             # Drain_area Land_use
             alg_params = {
                 'ALPHA_BAND': False,
@@ -224,7 +224,8 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'TARGET_EXTENT': None,
                 'X_RESOLUTION': None,
                 'Y_RESOLUTION': None,
-                'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" #QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" ,
+                #'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
@@ -236,19 +237,19 @@ class IndiceA1(QgsProcessingAlgorithm):
                 'OUTPUT_TABLE': tmp['table'].name
             }
             outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-            
+
             # Create layers from source/path
             watershed_poly = QgsVectorLayer(outputs['PolygonizeRasterToVector']['OUTPUT'], 'poly', 'ogr')
             table = QgsVectorLayer(
-                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],            
+                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],
                 'table', 'ogr'
             )
-            
+
             # Here we compute watershed, forest and agri area, the add to new feture
             tot_area = sum([feat.geometry().area() for feat in watershed_poly.getFeatures()])
             forest_area = 0
             agri_area = 0
-            
+
             if tot_area != 0:
                 # Get forest and agri areas
                 for feat in table.getFeatures():
@@ -256,8 +257,8 @@ class IndiceA1(QgsProcessingAlgorithm):
                         forest_area = feat['m2']/tot_area
                     elif feat['value'] == 2:
                         agri_area = feat['m2']/tot_area
-                
-                
+
+
                 # Assigne index A1
                 if forest_area >= 0.9:
                     indiceA1 = 0
@@ -274,22 +275,22 @@ class IndiceA1(QgsProcessingAlgorithm):
             else:
                 # TODO : replace by null value
                 indiceA1 = -1
-            
+
             # Add forest area to new featuer
             feature.setAttributes(
                     feature.attributes() + [indiceA1]
             )
-            
+
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
-            
+
             print(f'{fid}/{feature_count}')
             print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
-            
+
         # Clear temporary files
         for tempfile in tmp.values():
             tempfile.close()
-        
+
         return {'IQM': dest_id}
 
     def name(self):
