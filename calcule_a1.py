@@ -25,13 +25,10 @@ import processing
 class IndiceA1(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer', defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Cours d\'eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink('sink', 'Output', defaultValue=None))
-        #self.addParameter(QgsProcessingParameterNumber('outlet_fid', 'outlet_FID', type=QgsProcessingParameterNumber.Integer, minValue=0, defaultValue=None))
-        #self.addParameter(QgsProcessingParameterFeatureSink('Report', 'report', optional=True, type=QgsProcessing.TypeVector, createByDefault=False, defaultValue=None))
-        #self.addParameter(QgsProcessingParameterRasterDestination('Tmpreclassifiedtif', '/tmp/reclassified.tif', createByDefault=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -42,9 +39,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 
         # Dictionnary that will contain all temporary file locations
         tmp = {}
-
-        # Create necessary temporary file locations
-        tmp['d8'] = Ntf(suffix="d8.tif")
         tmp['watershed'] = Ntf(suffix="watershed.tif")
 
         # Define source stream net
@@ -64,58 +58,7 @@ class IndiceA1(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        # WBT : Create D8 from dem
-        # FillBurn
-        alg_params = {
-            'dem': parameters['dem'],
-            'streams': parameters['stream_network'],
-            'output': tmp['d8'].name
-        }
-        outputs['Fillburn'] = processing.run('wbt:FillBurn', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
         feedback.setCurrentStep(1)
-        if feedback.isCanceled():
-            return {}
-
-        # FillDepressions
-        alg_params = {
-            'dem': outputs['Fillburn']['output'],
-            'fix_flats': True,
-            'flat_increment': None,
-            'max_depth': None,
-            'output': tmp['d8'].name
-        }
-        outputs['Filldepressions'] = processing.run('wbt:FillDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(2)
-        if feedback.isCanceled():
-            return {}
-
-        # BreachDepressionsLeastCost
-        alg_params = {
-            'dem': outputs['Fillburn']['output'],
-            'dist': 10,
-            'fill': True,
-            'flat_increment': None,
-            'max_cost': None,
-            'min_dist': False,
-            'output': tmp['d8'].name
-        }
-        outputs['Breachdepressionsleastcost'] = processing.run('wbt:BreachDepressionsLeastCost', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(3)
-        if feedback.isCanceled():
-            return {}
-
-        # D8Pointer
-        alg_params = {
-            'dem': outputs['Breachdepressionsleastcost']['output'],
-            'esri_pntr': False,
-            'output': tmp['d8'].name
-        }
-        outputs['D8pointer'] = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(4)
         if feedback.isCanceled():
             return {}
 
@@ -188,7 +131,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 
             # Watershed
             alg_params = {
-                'd8_pntr': tmp['d8'].name,
+                'd8_pntr': parameters['D8'],
                 'esri_pntr': False,
                 'pour_pts': outputs['single_point']['OUTPUT'],
                 'output': tmp['watershed'].name
