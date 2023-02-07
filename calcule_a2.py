@@ -1,7 +1,7 @@
 """
 Model exported as python.
 Name : IndiceA2
-Group : 
+Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
@@ -25,12 +25,12 @@ import processing
 class IndiceA2(QgsProcessingAlgorithm):
     ID_FIELD = 'Id'
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Cours d\'eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('D8', 'D8', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Cours d'eau", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink('sink', 'Output', defaultValue=None))
-        
-        
+
+
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -41,7 +41,6 @@ class IndiceA2(QgsProcessingAlgorithm):
 
         # Create temporary file locations
         tmp = {
-            'd8': Ntf(suffix="d8.tif"),
             'mainWatershed' : Ntf(suffix="watershed.tif"),
             'subWatershed' : Ntf(suffix="sub-watershed.tif"),
         }
@@ -64,62 +63,6 @@ class IndiceA2(QgsProcessingAlgorithm):
         )
 
         # WBT : Create D8 from dem
-        # FillBurn
-        alg_params = {
-            'dem': parameters['dem'],
-            'streams': parameters['stream_network'],
-            'output': tmp['d8'].name
-        }
-        outputs['Fillburn'] = processing.run(
-            'wbt:FillBurn', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(1)
-        if feedback.isCanceled():
-            return {}
-
-        # FillDepressions
-        alg_params = {
-            'dem': outputs['Fillburn']['output'],
-            'fix_flats': True,
-            'flat_increment': None,
-            'max_depth': None,
-            'output': tmp['d8'].name
-        }
-        outputs['Filldepressions'] = processing.run(
-            'wbt:FillDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(2)
-        if feedback.isCanceled():
-            return {}
-            
-        # BreachDepressions
-        alg_params = {
-            'dem': outputs['Fillburn']['output'],
-            'fill_pits': True,
-            'flat_increment': 0.001,
-            'max_depth': None,
-            'max_length': None,
-            'output': tmp['d8'].name
-        }
-        outputs['Breachdepressions'] = processing.run(
-            'wbt:BreachDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-    
-        feedback.setCurrentStep(3)
-        if feedback.isCanceled():
-            return {}
-
-        # D8Pointer
-        alg_params = {
-            'dem': outputs['Breachdepressions']['output'],
-            'esri_pntr': False,
-            'output': tmp['d8'].name
-        }
-        outputs['D8pointer'] = processing.run(
-            'wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-
-        feedback.setCurrentStep(4)
-        if feedback.isCanceled():
-            return {}
 
         # Snap dams to river network
         # Snapped Dams
@@ -131,8 +74,8 @@ class IndiceA2(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-       
-        
+
+
         # Extract specific vertex
         # TODO : try and remove is_child_algorithm
         alg_params = {
@@ -141,7 +84,7 @@ class IndiceA2(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractSpecificVertex'] = processing.run(
-            'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+            'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
         feedback.setCurrentStep(5)
         if feedback.isCanceled():
@@ -154,9 +97,9 @@ class IndiceA2(QgsProcessingAlgorithm):
         features = [f for f in source.getFeatures()]
         feature_count = source.featureCount()
         id_field = self.ID_FIELD
-        
+
         for current, feature in enumerate(features):
-            fid = feature[id_field]
+            fid = feature.id()
             # For each segment
             # Compute waterhed
             if feedback.isCanceled():
@@ -172,17 +115,17 @@ class IndiceA2(QgsProcessingAlgorithm):
             }
 
             outputs['single_point'] = processing.run(
-                'native:extractbyattribute', alg_params, context=context, feedback=feedback)
+                'native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
             # Watershed
             alg_params = {
-                'd8_pntr': tmp['d8'].name,
+                'd8_pntr': parameters['D8'],
                 'esri_pntr': False,
                 'pour_pts': outputs['single_point']['OUTPUT'],
                 'output': tmp['mainWatershed'].name
             }
             outputs['mainWatershed'] = processing.run(
-                'wbt:Watershed', alg_params, context=context, feedback=feedback)
+                'wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
             # Polygonize (raster to vector)
             alg_params = {
@@ -194,8 +137,8 @@ class IndiceA2(QgsProcessingAlgorithm):
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['mainWatershedPoly'] = processing.run(
-                'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
-            
+                'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
             # Compute watershed total area
             mainWatershedPoly = QgsVectorLayer(
                 outputs['mainWatershedPoly']['OUTPUT'], 'vector main watershed', 'ogr')
@@ -213,7 +156,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 
              # Watershed
             alg_params = {
-                'd8_pntr': outputs['D8pointer']['output'],
+                'd8_pntr': parameters['D8'],
                 'esri_pntr': False,
                 'pour_pts': outputs['ClipDams']['OUTPUT'],
                 'output': tmp['subWatershed'].name
@@ -234,13 +177,13 @@ class IndiceA2(QgsProcessingAlgorithm):
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['subWatershedPoly'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-            
+
             # Compute watershed total area
             subWatershedPoly = QgsVectorLayer(
                 outputs['subWatershedPoly']['OUTPUT'], 'vector sub watershed', 'ogr')
             sub_area = sum([feat.geometry().area()
                            for feat in subWatershedPoly.getFeatures()])
-            
+
             indiceA2 = 0
 
             if main_area != 0 and sub_area != 0:
@@ -254,7 +197,7 @@ class IndiceA2(QgsProcessingAlgorithm):
                     indiceA2 = 3
                 elif 0.66 <= ratio:
                     indiceA2 = 4
-                
+
 
             # Add forest area to new featuer
             feature.setAttributes(
