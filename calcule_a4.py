@@ -133,7 +133,7 @@ class calculerIc(QgsProcessingAlgorithm):
                 # Update the progress bar
                 feedback.setProgress(int(current * total))
 
-        return {self.OUTPUT: dest_id}
+        return {'IQM': dest_id}
 
 
 

@@ -1,15 +1,4 @@
-# -*- coding: utf-8 -*-
 
-"""
-***************************************************************************
-*                                                                         *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or     *
-*   (at your option) any later version.                                   *
-*                                                                         *
-***************************************************************************
-"""
 from collections import Counter
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (QgsProcessing,
@@ -20,6 +9,7 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingParameterFeatureSource,
                        QgsProcessingParameterFeatureSink,
                        QgsVectorLayer,
+                       QgsProcessingMultiStepFeedback,
                        QgsProject,
                        QgsFeatureRequest,
                        QgsSpatialIndex
@@ -27,66 +17,34 @@ from qgis.core import (QgsProcessing,
 from qgis import processing
 
 
-class calculerF1(QgsProcessingAlgorithm):
-    """
-    This is an example algorithm that takes a vector layer and
-    creates a new identical one.
-
-    It is meant to be used as an example of how to create your own
-    algorithms and explain methods and variables used to do it. An
-    algorithm like this will be available in all elements, and there
-    is not need for additional work.
-
-    All Processing algorithms should extend the QgsProcessingAlgorithm
-    class.
-    """
-
-    # Constants used to refer to parameters and outputs. They will be
-    # used when calling the algorithm from another algorithm, or when
-    # calling from the QGIS console.
-
+class IndiceF1(QgsProcessingAlgorithm):
     INPUT = 'INPUT'
     OUTPUT = 'OUTPUT'
     STRUCTURES_PATH = '/home/karim/uqac/indice_F1/data/Structure_tq_shp/gsq_v_desc_strct_tri_rpr.shp'
     FID = "Id"
-    
 
     def initAlgorithm(self, config=None):
-        
-        self.addParameter(
-            QgsProcessingParameterFeatureSource(
-                self.INPUT,
-                self.tr('Input layer'),
-                [QgsProcessing.TypeVectorAnyGeometry]
-            )
-        )
-        
-        self.addParameter(
-            QgsProcessingParameterFeatureSink(
-                self.OUTPUT,
-                self.tr('Output layer')
-            )
-        )
+        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Input layer'), [QgsProcessing.TypeVectorAnyGeometry]))
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output layer')))
 
-    def processAlgorithm(self, parameters, context, feedback):
-        
-        outputs = dict()
-        
+    def processAlgorithm(self, parameters, context, model_feedback):
+        feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
+        outputs = {}
         source = self.parameterAsSource(
             parameters,
             self.INPUT,
             context
         )
-        
+
         # Create a QgsVectorLayer from source
-        source_vl = QgsVectorLayer(parameters[self.INPUT],'hihi','memory')        
+        source_vl = QgsVectorLayer(parameters[self.INPUT],'hihi','memory')
         if source is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
-            
+
         #Adding new field to output
         sink_fields = source.fields()
         sink_fields.append(QgsField("Indice F1", QVariant.Int))
-        
+
         (sink, dest_id) = self.parameterAsSink(
             parameters,
             self.OUTPUT,
@@ -101,15 +59,15 @@ class calculerF1(QgsProcessingAlgorithm):
 
         # Send some information to the user
         feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
-        
+
         # find and read the structures shp file
-        structures = QgsVectorLayer(self.STRUCTURES_PATH, 'structures','ogr')        
-        
+        structures = QgsVectorLayer(self.STRUCTURES_PATH, 'structures','ogr')
+
         prefix = "segment_"
         parameters = {
             "INPUT": structures,
             "INPUT_2": source.sourceName(),
-            "DISCARD_NONMATCHING": True, 
+            "DISCARD_NONMATCHING": True,
             "FIELDS_TO_COPY": [self.FID],
             "MAX_DISTANCE": 8,
             "PREFIX": prefix,
@@ -117,21 +75,20 @@ class calculerF1(QgsProcessingAlgorithm):
             "OUTPUT": "TEMPORARY_OUTPUT",
             #"area_units": "m2",
             #"distance_units": "meters",
-            #"ellipsoid": "EPSG:7019",           
+            #"ellipsoid": "EPSG:7019",
         }
         outputs['nearest'] = processing.run(
             "native:joinbynearest",
             parameters,
             context=context,feedback=feedback
         )
-        
-        QgsProject.instance().addMapLayer(outputs['nearest']['OUTPUT'])
-        
+
+        #QgsProject.instance().addMapLayer(outputs['nearest']['OUTPUT'])
+
         obstructed_ids = [feature[prefix + self.FID] for feature in outputs['nearest']['OUTPUT'].getFeatures()]
         obstructed_ids = Counter(obstructed_ids)
-        
-        print(obstructed_ids)
-        
+
+
         # Compute the number of steps to display within the progress bar and
         # get features from source
         total = 100.0 / source.featureCount() if source.featureCount() else 0
@@ -148,11 +105,11 @@ class calculerF1(QgsProcessingAlgorithm):
                     indx_f1 = 4
             else:
                 indx_f1 = 0
-            
+
             feature.setAttributes(
                 feature.attributes() + [indx_f1]
             )
-            
+
             # Add a feature in the sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
@@ -160,16 +117,16 @@ class calculerF1(QgsProcessingAlgorithm):
             feedback.setProgress(int(current * total))
 
         return {self.OUTPUT: dest_id}
-    
-    
+
+
     def tr(self, string):
         return QCoreApplication.translate('Processing', string)
 
     def createInstance(self):
-        return calculerF1()
+        return IndiceF1()
 
     def name(self):
-        return 'calculerf1'
+        return 'indicef1'
 
     def displayName(self):
         return self.tr('Indice F1')
