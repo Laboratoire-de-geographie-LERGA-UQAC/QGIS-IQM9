@@ -5,7 +5,7 @@ Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
-from qgis.PyQt.QtCore import QVariant
+yfrom qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
 					   QgsField,
 					   QgsFeatureSink,
@@ -170,8 +170,8 @@ class IndiceA3(QgsProcessingAlgorithm):
 				'EXTRA': '',
 				'FIELD': 'DN',
 				'INPUT': outputs['mainWatershed']['output'],
-				#'OUTPUT': f"tmp/polyWatershed_{fid}.gpkg"
-				'OUTPUT':tmp['mainWatershed'].name
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+				#'OUTPUT':tmp['mainWatershed'].name
 			}
 			outputs['mainWatershedPoly'] = processing.run(
 				'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
