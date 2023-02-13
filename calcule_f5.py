@@ -13,7 +13,7 @@ from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterFeatureSink
 from qgis.core import QgsProperty
 import processing
-
+import numpy
 from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
@@ -30,6 +30,7 @@ from qgis.core import (QgsProcessing,
 class IndiceF5(QgsProcessingAlgorithm):
 
 	OUTPUT = 'OUTPUT'
+	ID_FIELD = 'Id'
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
@@ -37,7 +38,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterNumber('transectsegment', 'Transect/segment', optional=True, type=QgsProcessingParameterNumber.Integer, minValue=1, maxValue=100, defaultValue=10))
-		self.addParameter(QgsProcessingParameterFeatureSink('sink', 'Sink', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 		#self.addParameter(QgsProcessingParameterFeatureSink('Points', 'Points', type=QgsProcessing.TypeVectorPoint, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
@@ -115,7 +116,6 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 		def computeF5(intersect_arr, lengths_arr, div):
 			# Compute Iqm from sequence continuity
-			print("num_div : ",div)
 			if (longest_seq(intersect_arr > 2 * lengths_arr) / div >= 0.9):
 				return 0
 			if (longest_seq(intersect_arr > lengths_arr) / div >= 0.66):
@@ -156,6 +156,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 		# feature count for feedback
 		feature_count = source.featureCount()
+		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for segment in source.getFeatures():
 			#gen points and normals along geometry
