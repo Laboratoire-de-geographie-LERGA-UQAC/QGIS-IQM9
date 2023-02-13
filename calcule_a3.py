@@ -5,7 +5,7 @@ Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
-yfrom qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
 					   QgsField,
 					   QgsFeatureSink,
