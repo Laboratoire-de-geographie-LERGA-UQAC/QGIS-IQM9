@@ -109,6 +109,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		id_field = 'Id'
 		for current, feature in enumerate(features):
 			fid = feature.id()
+			print("Id : ", feature[1])
 			# For each pour point
 			# Compute the percentage of forests and agriculture lands in the draining area
 			# Then compute index_A1 and add it in a new field to the river network

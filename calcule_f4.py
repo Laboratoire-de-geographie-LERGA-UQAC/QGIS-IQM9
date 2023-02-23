@@ -219,4 +219,4 @@ class IndiceF4(QgsProcessingAlgorithm):
 		return 'iqm'
 
 	def shortHelpString(self):
-		return self.tr("Clacule l'indice A4 de l'IQM (sinuosité)")
+		return self.tr("Clacule l'indice F4")
