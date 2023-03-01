@@ -126,12 +126,11 @@ class IndiceA3(QgsProcessingAlgorithm):
 			return {}
 
 		# Looping through vertices
-		features = [f for f in source.getFeatures()]
 		feature_count = source.featureCount()
-		id_field = self.ID_FIELD
+		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
-		for current, feature in enumerate(features):
-			fid = feature[id_field]
+		for feature in source.getFeatures():
+			fid = feature[fid_idx]
 
 			# For each pour point
 			# Compute the percentage of forests and agriculture lands in the draining area
@@ -143,7 +142,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 			# Get segment pour point
 			# Extract By Attribute
 			alg_params = {
-				'FIELD': id_field,
+				'FIELD': self.ID_FIELD,
 				'INPUT': outputs['ExtractSpecificVertex']['OUTPUT'],
 				'OPERATOR': 0,  # =
 				'VALUE': str(fid),
@@ -177,7 +176,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 				'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
 			# materialize segment
-			single_segment = source.materialize(QgsFeatureRequest().setFilterFids([fid]))
+			single_segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
 			# 1 Km buffer around river
 			alg_params = {
 				'INPUT': single_segment,
@@ -223,7 +222,9 @@ class IndiceA3(QgsProcessingAlgorithm):
 				'INPUT':single_segment,
 				'DISTANCE':buffer_width,
 				'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-				'OUTPUT': tmp['buffer'].name
+				#'OUTPUT': tmp['buffer'].name,
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT,
+				#'OUTPUT' : f"tmp/test_buffer{fid}.gpkg"
 			}
 			outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
 

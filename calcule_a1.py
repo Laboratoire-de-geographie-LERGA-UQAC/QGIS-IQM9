@@ -239,7 +239,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		for tempfile in tmp.values():
 			tempfile.close()
 
-		return results
+		return {self.OUTPUT : dest_id}
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)

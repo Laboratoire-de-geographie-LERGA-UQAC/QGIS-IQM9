@@ -38,15 +38,16 @@ class IndiceF4(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 	ID_FIELD = 'Id'
 	DIVS = 100
-	CHANGE_THRESH = 0.66
+	UTHRESH = 0.2
+	LTHRESH = 0
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
+		self.addParameter(QgsProcessingParameterNumber('thresh', 'Threshold', optional=True, type=QgsProcessingParameterNumber.Double, minValue=0, maxValue=5, defaultValue=0.1))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-
+		self.UTHRESH = self.parameterAsDouble(parameters, 'thresh', context)
 		def pointsAlongGeometry(feature):
 			# Materialize segment feature
 			feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
@@ -66,7 +67,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 			processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 			return QgsVectorLayer(tmp['points'].name, 'points', 'ogr')
 
-		def gen_normals(points):
+		def gen_normals(points, context4):
 			# Geometry by expression
 			alg_params = {
 				'EXPRESSION':f"with_variable('len',overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0] * {parameters['ratio']},extend(make_line($geometry,project($geometry,@len,radians(\"angle\" - 90))),@len,0))",
@@ -93,14 +94,18 @@ class IndiceF4(QgsProcessingAlgorithm):
 			width = expr.evaluate(feat_context)
 			return width
 
-		def natural_width_ratio(width_array):
-			difs = width_array[1:] / width_array[:-1]
-			unnatural_widths = np.where((difs > 1.33) | (difs < 1))[0].size
-			return 1 - (unnatural_widths / difs.size)
+		def natural_width_ratio(width_array, div_distance):
+			# difs = (width_array[1:] / width_array[:-1]) / width_array[1:] / div_distance
+			difs_percent = (width_array[1:] - width_array[:-1])/ width_array[1:]
+			difs_specific = difs_percent * 1000 / div_distance
+			print(f"{difs_specific=}")
+			unnatural_widths = np.where((difs_specific < self.LTHRESH) | (difs_specific > self.UTHRESH))[0].size
+			print(f"{unnatural_widths=}")
+			return 1 - (unnatural_widths / difs_percent.size)
 
-		def computeF4(width_array):
+		def computeF4(width_array, div_distance):
 			# Compute F4 from width array
-			ratio = natural_width_ratio(width_array)
+			ratio = natural_width_ratio(width_array, div_distance)
 			if (ratio >= 0.9):
 				return 0
 			if (ratio >= 0.66):
@@ -123,7 +128,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 		# Define Sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Indice F5", QVariant.Int))
+		sink_fields.append(QgsField("Indice F4", QVariant.Int))
 
 		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
@@ -146,15 +151,15 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 			# get width at points
 			width_array = []
-
-			# Store normal length and intersection len in np arrays
+			div_distance = segment.geometry().length() / self.DIVS
+			# Store normal length and intersection len in numpy arrays
 			for point in points_along_line.getFeatures():
 				width = get_ptref_width(point)
 				width_array.append(width)
 			width_array = np.array(width_array)
-			print(width_array)
+			print(f"{width_array=}")
 			# Determin the IQM Score
-			indiceF4 = computeF4(width_array=width_array)
+			indiceF4 = computeF4(width_array, div_distance)
 			#Write Index
 			segment.setAttributes(
 				segment.attributes() + [indiceF4]

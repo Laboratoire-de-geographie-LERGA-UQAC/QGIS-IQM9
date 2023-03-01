@@ -82,14 +82,11 @@ class IndiceA2(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		vertices = outputs['ExtractSpecificVertex']['OUTPUT']
-
-		features = [f for f in source.getFeatures()]
 		feature_count = source.featureCount()
-		id_field = self.ID_FIELD
+		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
-		for current, feature in enumerate(features):
-			fid = feature.id()
+		for feature in source.getFeatures():
+			fid = feature[fid_idx]
 			# For each segment
 			# Compute waterhed
 			if feedback.isCanceled():
@@ -97,7 +94,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 
 			# Extract By Attribute
 			alg_params = {
-				'FIELD': id_field,
+				'FIELD': self.ID_FIELD,
 				'INPUT': outputs['ExtractSpecificVertex']['OUTPUT'],
 				'OPERATOR': 0,  # =
 				'VALUE': str(fid),
@@ -197,7 +194,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-			print(f'{current}/{feature_count}')
+			print(f'{fid}/{feature_count}')
 
 		# Clear temporary files
 		for tempfile in tmp.values():
