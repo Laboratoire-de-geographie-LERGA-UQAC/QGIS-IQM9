@@ -39,10 +39,11 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	OUTPUT = 'OUTPUT'
 	ID_FIELD = 'Id'
-	DIVISIONS = 100
+	DIVISIONS = 10
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('roads', 'roads', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('structs', 'Structures', defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
@@ -51,7 +52,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 	def processAlgorithm(self, parameters, context, model_feedback):
 
 		def split_buffer(feature, source):
-			# Spliting river segment into a 100 subsegments.
+			# Spliting river segment into a fixed number of subsegments.
 			segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
 			params = {
 			'INPUT':segment,
@@ -70,17 +71,20 @@ class IndiceF3(QgsProcessingAlgorithm):
 			buffer = processing.run("native:geometrybyexpression", params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 			return context.takeResultLayer(buffer)
 
-		def intersects_road(feat, layer):
-			#Evaluating intersection
-			expr = QgsExpression(f"""
-				to_int(overlay_intersects('{parameters['roads']}'))
-			""")
-			feat_context = QgsExpressionContext()
-			feat_context.setFeature(feat)
-			scopes = QgsExpressionContextUtils.globalProjectLayerScopes(layer)
-			feat_context.appendScopes(scopes)
-			intersect_bool = expr.evaluate(feat_context)
-			return intersect_bool
+		def intersects_structs(feat, base_layer, struct_lay_sources):
+			for layer_source in struct_lay_sources:
+				#Evaluating intersection
+				expr = QgsExpression(f"""
+					to_int(overlay_intersects('{layer_source}'))
+				""")
+				feat_context = QgsExpressionContext()
+				feat_context.setFeature(feat)
+				scopes = QgsExpressionContextUtils.globalProjectLayerScopes(base_layer)
+				feat_context.appendScopes(scopes)
+				eval = expr.evaluate(feat_context)
+				if eval:
+					return True
+			return False
 
 		def computeF3(intersect_arr):
 			# Compute Iqm from sequence continuity
@@ -128,12 +132,12 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 		for segment in source.getFeatures():
 			# Split segment into 100 buffers
-			buffers = split_buffer(segment, source)
+			buffer_layer = split_buffer(segment, source)
 			# List for storing normal lenght and intersection
 			intersect_bool = []
 			# Store normal length and intersection in numpy arrays
-			for buffer in buffers.getFeatures():
-				intersect_bool.append(intersects_road(buffer, buffers))
+			for buffer in buffer_layer.getFeatures():
+				intersect_bool.append(intersects_structs(buffer, buffer_layer, [parameters['roads'], parameters['structs']]))
 
 			intersect_bool = numpy.array(intersect_bool)
 			print("arr_len : ", intersect_bool.size,"\narr_sum", numpy.sum(intersect_bool))
