@@ -5,6 +5,8 @@ from qgis.core import (QgsProcessing,
 					   QgsField,
 					   QgsFeatureSink,
 					   QgsVectorLayer,
+					   QgsProject,
+					   QgsRasterLayer
 					  )
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -54,6 +56,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 			source.wkbType(),
 			source.sourceCrs()
 		)
+		results[self.OUTPUT] = dest_id
 
 		feedback.setCurrentStep(1)
 		if feedback.isCanceled():
@@ -90,7 +93,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 			'VERTICES': '-2',
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+		outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
 		feedback.setCurrentStep(5)
 		if feedback.isCanceled():
@@ -101,15 +104,14 @@ class IndiceA1(QgsProcessingAlgorithm):
 		#fid_index = outputs['ExtractSpecificVertex']['OUTPUT'].fields().indexFromName('fid')
 		#fid_ids = outputs['ExtractSpecificVertex']['OUTPUT'].uniqueValues(fid_index)
 
-		vertices = outputs['ExtractSpecificVertex']['OUTPUT']
+
 
 		#for fid in list(fid_ids)[189:192]:
-		features = [f for f in source.getFeatures()]
 		feature_count = source.featureCount()
-		id_field = 'Id'
-		for current, feature in enumerate(features):
-			fid = feature.id()
-			print("Id : ", feature[1])
+		fid_idx = source.fields().indexFromName(self.ID_FIELD)
+
+		for feature in source.getFeatures():
+			fid = feature[fid_idx]
 			# For each pour point
 			# Compute the percentage of forests and agriculture lands in the draining area
 			# Then compute index_A1 and add it in a new field to the river network
@@ -118,14 +120,13 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 			# Extract By Attribute
 			alg_params = {
-			'FIELD': id_field,
+			'FIELD': self.ID_FIELD,
 			'INPUT': outputs['ExtractSpecificVertex']['OUTPUT'],
 			'OPERATOR': 0,  # =
 			'VALUE': str(fid),
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-
-			outputs['single_point']= processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback)
+			outputs['single_point']= processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
 			# Watershed
 			alg_params = {
@@ -135,6 +136,11 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'output': tmp['watershed'].name
 			}
 			outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			print(outputs['Watershed']['output'])
+
+
+			# rlayer = QgsRasterLayer(outputs['Watershed']['output'], 'watershed')
+			# QgsProject.instance().addMapLayer(rlayer)
 
 			# Polygonize (raster to vector)
 			alg_params = {
@@ -145,7 +151,8 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'INPUT': outputs['Watershed']['output'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=False)
+			outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			# QgsProject.instance().addMapLayer()
 
 			# Drain_area Land_use
 			alg_params = {
@@ -232,7 +239,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		for tempfile in tmp.values():
 			tempfile.close()
 
-		return {self.OUTPUT: dest_id}
+		return results
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)

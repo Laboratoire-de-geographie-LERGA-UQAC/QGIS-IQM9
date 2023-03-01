@@ -11,7 +11,7 @@
 ***************************************************************************
 """
 
-import numpy
+import numpy as np
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
 from qgis.core import QgsProcessingParameterVectorLayer
@@ -36,15 +36,14 @@ from qgis.core import (QgsProcessing,
 class IndiceF4(QgsProcessingAlgorithm):
 
 	OUTPUT = 'OUTPUT'
-
+	ID_FIELD = 'Id'
+	DIVS = 100
+	CHANGE_THRESH = 0.66
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterNumber('transectsegment', 'Transect/segment', optional=True, type=QgsProcessingParameterNumber.Integer, minValue=1, maxValue=100, defaultValue=10))
-		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, 'Output', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
-		#self.addParameter(QgsProcessingParameterFeatureSink('Points', 'Points', type=QgsProcessing.TypeVectorPoint, createByDefault=True, supportsAppend=True, defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -54,7 +53,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 			# Points along geometry
 			alg_params = {
-				'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {parameters['transectsegment']}"),
+				'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {self.DIVS}"),
 				'END_OFFSET': 0,
 				'INPUT': feature,
 				'START_OFFSET': 0,
@@ -84,59 +83,36 @@ class IndiceF4(QgsProcessingAlgorithm):
 			processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 			return QgsVectorLayer(tmp['normals'].name, 'normals', 'ogr')
 
-		def intersection_len_band_riv(normal):
-			section_width= normal.geometry().length() / parameters['ratio']
+		def get_ptref_width(feature):
 			#Evaluating intersection distance
 			expr = QgsExpression(f"""
-				max(
-					0,
-					length(
-						segments_to_lines(
-							intersection(
-								$geometry,collect_geometries(
-									overlay_intersects('{parameters['bande_riveraine_polly']}',$geometry)
-								)
-							)
-						)
-					)
-				)
+				overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0]
 			""")
 			feat_context = QgsExpressionContext()
-			feat_context.setFeature(normal)
-			intersect_len = expr.evaluate(feat_context)
-			return intersect_len
+			feat_context.setFeature(point)
+			width = expr.evaluate(feat_context)
+			return width
 
-		def longest_seq(bits):
-			# make sure all runs of ones are well-bounded
-			bounded = numpy.hstack(([0], bits, [0]))
-			print(bounded)
-			# get 1 at run starts and -1 at run ends
-			difs = numpy.diff(bounded)
-			run_starts, = numpy.where(difs > 0)
-			run_ends, = numpy.where(difs < 0)
-			if run_starts.size and run_ends.size:
-				return (run_ends - run_starts).max()
-			return 0
+		def natural_width_ratio(width_array):
+			difs = width_array[1:] / width_array[:-1]
+			unnatural_widths = np.where((difs > 1.33) | (difs < 1))[0].size
+			return 1 - (unnatural_widths / difs.size)
 
-
-		def computeF5(intersect_arr, lengths_arr, div):
-			# Compute Iqm from sequence continuity
-			print("num_div : ",div)
-			if (longest_seq(intersect_arr > 2 * lengths_arr) / div >= 0.9):
+		def computeF4(width_array):
+			# Compute F4 from width array
+			ratio = natural_width_ratio(width_array)
+			if (ratio >= 0.9):
 				return 0
-			if (longest_seq(intersect_arr > lengths_arr) / div >= 0.66):
+			if (ratio >= 0.66):
+				return 1
+			if (ratio >= 0.33):
 				return 2
-			if (longest_seq(intersect_arr > 0.5 * lengths_arr) / div >= 0.66):
-				return 3
-			if (longest_seq(intersect_arr > 0.5 * lengths_arr) / div >= 0.33):
-				return 4
-			return 5
+			return 3
 
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
 		# overall progress through the model
 		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 		results = {}
-		outputs = {}
 		tmp = {
 			'points':NamedTemporaryFile(suffix="pts.gpkg"),
 			'normals':NamedTemporaryFile(suffix="normals.gpkg"),
@@ -162,43 +138,35 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 		# feature count for feedback
 		feature_count = source.featureCount()
+		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for segment in source.getFeatures():
 			#gen points and normals along geometry
 			points_along_line = pointsAlongGeometry(segment)
-			normals = gen_normals(points_along_line)
 
-			# List for storing normal lenght and intersection
-			intersect_lengths = []
-			normal_lengths = []
-			division_num = 0
+			# get width at points
+			width_array = []
 
-			# Store normal length and intersection len in numpy arrays
-			for normal in normals.getFeatures():
-				normal_lengths.append(normal.geometry().length() / parameters['ratio'])
-				intersect_lengths.append(intersection_len_band_riv(normal))
-				division_num += 1
-			intersect_lengths = numpy.array(intersect_lengths)
-			normal_lengths = numpy.array(normal_lengths)
-
+			# Store normal length and intersection len in np arrays
+			for point in points_along_line.getFeatures():
+				width = get_ptref_width(point)
+				width_array.append(width)
+			width_array = np.array(width_array)
+			print(width_array)
 			# Determin the IQM Score
-
-			indiceF5 = computeF5(intersect_lengths, normal_lengths, division_num)
+			indiceF4 = computeF4(width_array=width_array)
 			#Write Index
 			segment.setAttributes(
-				segment.attributes() + [indiceF5]
+				segment.attributes() + [indiceF4]
 			)
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
-			print(f"{segment[1]} / {feature_count}")
+			print(f"{segment[fid_idx]} / {feature_count}")
 
 		#Clear temporary files
 		for temp in tmp.values():
 			temp.close()
 		return results
-
-
-
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)

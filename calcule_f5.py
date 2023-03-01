@@ -13,11 +13,7 @@ from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterFeatureSink
 from qgis.core import QgsProperty
 import processing
-<<<<<<< HEAD
-
-=======
-import numpy
->>>>>>> dev
+import numpy as np
 from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
@@ -107,12 +103,12 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 		def longest_seq(bits):
 			# make sure all runs of ones are well-bounded
-			bounded = numpy.hstack(([0], bits, [0]))
+			bounded = np.hstack(([0], bits, [0]))
 			print(bounded)
 			# get 1 at run starts and -1 at run ends
-			difs = numpy.diff(bounded)
-			run_starts, = numpy.where(difs > 0)
-			run_ends, = numpy.where(difs < 0)
+			difs = np.diff(bounded)
+			run_starts, = np.where(difs > 0)
+			run_ends, = np.where(difs < 0)
 			if run_starts.size and run_ends.size:
 				return (run_ends - run_starts).max()
 			return 0
@@ -177,8 +173,8 @@ class IndiceF5(QgsProcessingAlgorithm):
 				normal_lengths.append(normal.geometry().length() / parameters['ratio'])
 				intersect_lengths.append(intersection_len_band_riv(normal))
 				division_num += 1
-			intersect_lengths = numpy.array(intersect_lengths)
-			normal_lengths = numpy.array(normal_lengths)
+			intersect_lengths = np.array(intersect_lengths)
+			normal_lengths = np.array(normal_lengths)
 
 			# Determin the IQM Score
 
