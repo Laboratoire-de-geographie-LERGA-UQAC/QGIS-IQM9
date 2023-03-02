@@ -67,7 +67,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 			processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 			return QgsVectorLayer(tmp['points'].name, 'points', 'ogr')
 
-		def gen_normals(points, context4):
+		def gen_normals(points, context):
 			# Geometry by expression
 			alg_params = {
 				'EXPRESSION':f"with_variable('len',overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0] * {parameters['ratio']},extend(make_line($geometry,project($geometry,@len,radians(\"angle\" - 90))),@len,0))",
