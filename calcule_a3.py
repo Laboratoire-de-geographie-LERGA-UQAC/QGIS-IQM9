@@ -7,19 +7,23 @@ With QGIS : 32601
 from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
-					   QgsField,
-					   QgsFeatureSink,
-					   QgsVectorLayer,
-					   QgsFeatureRequest,
-					  )
-from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
-from qgis.core import QgsProcessingParameterRasterLayer
-from qgis.core import QgsProcessingParameterNumber
-from qgis.core import QgsProcessingParameterVectorLayer
-from qgis.core import QgsProcessingParameterFeatureSink
-from qgis.core import QgsProcessingParameterRasterDestination
-from qgis.core import QgsCoordinateReferenceSystem, QgsProcessingFeatureSourceDefinition
+						QgsField,
+						QgsFeatureSink,
+						QgsVectorLayer,
+						QgsFeatureRequest,
+						QgsProcessingAlgorithm,
+						QgsProcessingMultiStepFeedback,
+						QgsProcessingParameterRasterLayer,
+						QgsProcessingParameterNumber,
+						QgsProcessingParameterVectorLayer,
+						QgsProcessingParameterFeatureSink,
+						QgsProcessingParameterRasterDestination,
+						QgsCoordinateReferenceSystem,
+						QgsProcessingFeatureSourceDefinition,
+						QgsExpression,
+						QgsExpressionContext,
+						QgsExpressionContextUtils,
+					)
 import processing
 
 
@@ -32,6 +36,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8', defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
 
 
@@ -50,6 +55,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 
 		# Define source stream net
 		source = self.parameterAsSource(parameters, 'stream_network', context)
+		source_vlayer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
 
 		# Define Sink fields
 		sink_fields = source.fields()
@@ -213,10 +219,10 @@ class IndiceA3(QgsProcessingAlgorithm):
 			#### LAND USE ANALYSIS
 			# analyse land use on sides of stream
 			# Get segments buffers
-
+			feature_mean_width = ptrefs_mean_width(feature, source_vlayer, parameters['ptref_widths'])
 			buffer_width = max(
-				feature['width'] * 2.5, # twice river width on each side
-				feature['width'] * 0.5 + 15
+				feature_mean_width * 2.5, # twice river width on each side
+				feature_mean_width * 0.5 + 15
 			)
 			params = {
 				'INPUT':single_segment,
@@ -334,3 +340,19 @@ class IndiceA3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice A3")
+
+def ptrefs_mean_width(feature, source, PtRef_id, width_field='Largeur_mod', context=None, feedback=None):
+    expr = QgsExpression(f"""
+            array_mean(overlay_nearest('{PtRef_id}', {width_field}, limit:=-1, max_distance:=5))
+                """)
+    feat_context = QgsExpressionContext()
+    feat_context.setFeature(feature)
+
+    scopes = QgsExpressionContextUtils.globalProjectLayerScopes(source)
+    feat_context.appendScopes(scopes)
+
+    mean_width = expr.evaluate(feat_context)
+    if not mean_width : mean_width = 5
+
+    return mean_width
+

@@ -106,15 +106,16 @@ class IndiceF2(QgsProcessingAlgorithm):
 				print(f"{result=}, {scale=}")
 				buffer_feature = next(buffer_layer.getFeatures())
 
-				#check landuse  antropisation data
-				if check_raster(buffer_layer, land_use):
-					return result
-
 				# # Check vector data intersection
 				intersection = intersects_structs(buffer_feature, buffer_layer, [parameters['roads'], parameters['structs']])
 				if intersection:
 					print(f"INTERSECTION : {result=}, {scale=}")
 					return result
+
+				#check landuse  antropisation data
+				if check_raster(buffer_layer, land_use):
+					return result
+
 			return 0
 
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
