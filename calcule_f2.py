@@ -25,20 +25,27 @@ import processing
 from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
-					   QgsProject,
-					   QgsField,
-					   QgsFeatureSink,
-					   QgsVectorLayer,
-					   QgsProcessingContext,
-					   QgsFeatureRequest,
-					   QgsExpression,
-					   QgsExpressionContext,
-					   QgsExpressionContextUtils,
-					   QgsProcessingParameterRasterLayer,
-					   QgsCoordinateReferenceSystem,
-					  )
+						QgsProject,
+						QgsField,
+						QgsFeatureSink,
+						QgsVectorLayer,
+						QgsProcessingContext,
+						QgsFeatureRequest,
+						QgsExpression,
+						QgsExpressionContext,
+						QgsExpressionContextUtils,
+						QgsProcessingParameterRasterLayer,
+						QgsCoordinateReferenceSystem,
+						)
 
+# LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
+# logging.basicConfig(filename="/tmp/F2Log.log",
+# 					level=logging.DEBUG,
+# 					format=LOG_FORMAT,
+# 					filemode='w')
 
+# logger = logging.getLogger()
+# logger.info("Our First Message")
 
 
 class IndiceF2(QgsProcessingAlgorithm):
@@ -59,6 +66,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 	def processAlgorithm(self, parameters, context, model_feedback):
 
 		def gen_buffer(feature, source, scale=2.5):
+			# logger.info("Generatign buffer")
 			feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
 			# Buffering subsegment
 			params = {
@@ -72,6 +80,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 			return context.takeResultLayer(buffer)
 
 		def intersects_structs(feat, base_layer, struct_lay_sources):
+			# logger.info("checking vector intersection")
 			for layer_source in struct_lay_sources:
 				#Evaluating intersection
 				expr = QgsExpression(f"""
@@ -87,6 +96,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 			return False
 
 		def computeF2(feature, source, land_use):
+			# logger.info("Computing F2")
 			# search for anthropisation in buffers
 			barem = ((5, 1), (3, 2), (2, 4)) # barem corresponds to (IQM score, buffer search scale) tuples
 			for result, scale in barem:
@@ -101,10 +111,10 @@ class IndiceF2(QgsProcessingAlgorithm):
 					return result
 
 				# # Check vector data intersection
-				# intersection = intersects_structs(buffer_feature, buffer_layer, [parameters['roads'], parameters['structs']])
-				# if intersection:
-				# 	print(f"INTERSECTION : {result=}, {scale=}")
-				# 	return result
+				intersection = intersects_structs(buffer_feature, buffer_layer, [parameters['roads'], parameters['structs']])
+				if intersection:
+					print(f"INTERSECTION : {result=}, {scale=}")
+					return result
 			return 0
 
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -142,7 +152,6 @@ class IndiceF2(QgsProcessingAlgorithm):
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for segment in source.getFeatures():
-
 			"""
 			# Split segment into 100 buffers
 			buffer_layer = split_buffer(segment, source)
@@ -221,6 +230,7 @@ def reclassify_landuse(raster_source, context=None, feedback=None):
     return result
 
 def unique_values_report(mask_vlayer, raster_path, context=None, feedback=None):
+    #logger.info("Computing unique values report")
     if not context:
         context = QgsProcessingContext()
     #Clip raster by mask
@@ -256,6 +266,7 @@ def unique_values_report(mask_vlayer, raster_path, context=None, feedback=None):
     return context.takeResultLayer(output)
 
 def check_raster(mask_vlayer, raster_path):
+	#logger.info("Checking raster anthro")
 	val_report = unique_values_report(mask_vlayer, raster_path)
 	anthro_class_id = 3
 	values = [feat['value'] for feat in val_report.getFeatures()]

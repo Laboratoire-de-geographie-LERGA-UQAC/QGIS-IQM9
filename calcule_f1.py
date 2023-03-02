@@ -7,6 +7,7 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingException,
                        QgsProcessingAlgorithm,
                        QgsProcessingParameterFeatureSource,
+                       QgsProcessingParameterVectorLayer,
                        QgsProcessingParameterFeatureSink,
                        QgsVectorLayer,
                        QgsProcessingMultiStepFeedback,
@@ -24,7 +25,8 @@ class IndiceF1(QgsProcessingAlgorithm):
     FID = "Id"
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Input layer'), [QgsProcessing.TypeVectorAnyGeometry]))
+        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Reseau hydrologique'), [QgsProcessing.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output layer')))
 
     def processAlgorithm(self, parameters, context, model_feedback):

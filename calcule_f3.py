@@ -43,7 +43,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('roads', 'roads', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('structs', 'Structures', defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('structs', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
@@ -178,4 +178,3 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice F3")
-
