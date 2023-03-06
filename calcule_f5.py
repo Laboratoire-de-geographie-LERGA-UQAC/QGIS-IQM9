@@ -142,7 +142,7 @@ def pointsAlongGeometry(feature, source, context, feedback=None, output=QgsProce
 	result_id = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 	return context.takeResultLayer(result_id)
 
-def evaluate_expression(expression_str, vlayer, parameters, feature=None ):
+def evaluate_expression(expression_str, vlayer, feature=None ):
 	expression = QgsExpression(expression_str)
 	context = QgsExpressionContext()
 	if feature:
@@ -172,7 +172,7 @@ def get_intersect_ratio_array(vlayer, parameters):
 		overlay_nearest('{parameters['ptref_widths']}', largeur_mod)[0]
 	"""
 	expr = QgsExpression(f"array_agg({intersection_expr} / {ptref_expr})")
-	result = np.array(evaluate_expression(expr, vlayer, parameters))
+	result = np.array(evaluate_expression(expr, vlayer))
 	return result
 
 def computeF5(intersect_arr):

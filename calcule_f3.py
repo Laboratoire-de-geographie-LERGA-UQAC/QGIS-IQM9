@@ -11,111 +11,53 @@
 ***************************************************************************
 """
 
-import numpy
-from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
-from qgis.core import QgsProcessingParameterVectorLayer
-from qgis.core import QgsProcessingParameterNumber
-from qgis.core import QgsProcessingParameterFeatureSink
-from qgis.core import QgsProperty
+import numpy as np
+
 import processing
-
-from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
-from qgis.core import (QgsProcessing,
-					   QgsProject,
-					   QgsField,
-					   QgsFeatureSink,
-					   QgsVectorLayer,
-					   QgsFeatureRequest,
-					   QgsExpression,
-					   QgsExpressionContext,
-					   QgsExpressionContextUtils,
-					  )
-
+from qgis.core import (
+	QgsProcessing,
+	QgsProject,
+	QgsField,
+	QgsFeatureSink,
+	QgsVectorLayer,
+	QgsProcessingParameterMultipleLayers,
+	QgsFeatureRequest,
+	QgsExpression,
+	QgsExpressionContext,
+	QgsExpressionContextUtils,
+	QgsProcessingAlgorithm,
+	QgsProcessingMultiStepFeedback,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterNumber,
+	QgsProcessingParameterFeatureSink,
+	QgsProperty,
+)
 
 
 class IndiceF3(QgsProcessingAlgorithm):
-
 	OUTPUT = 'OUTPUT'
 	ID_FIELD = 'Id'
 	DIVISIONS = 10
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('roads', 'roads', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('structs', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', layerType=QgsProcessing.TypeVector, defaultValue=None))
 		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 
-		def split_buffer(feature, source):
-			# Spliting river segment into a fixed number of subsegments.
-			segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
-			params = {
-			'INPUT':segment,
-			'LENGTH':feature.geometry().length() / self.DIVISIONS,
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT,
-			}
-			split = processing.run('native:splitlinesbylength', params, context=context, is_child_algorithm=True)['OUTPUT']
-			# Buffering subsegments
-			params = {
-			'INPUT':split,
-			'OUTPUT_GEOMETRY':0,'WITH_Z':False,
-			'WITH_M':False,
-			'EXPRESSION':f"buffer( $geometry, 2.5 * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0])",
-			'OUTPUT':'TEMPORARY_OUTPUT'
-			}
-			buffer = processing.run("native:geometrybyexpression", params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-			return context.takeResultLayer(buffer)
-
-		def intersects_structs(feat, base_layer, struct_lay_sources):
-			for layer_source in struct_lay_sources:
-				#Evaluating intersection
-				expr = QgsExpression(f"""
-					to_int(overlay_intersects('{layer_source}'))
-				""")
-				feat_context = QgsExpressionContext()
-				feat_context.setFeature(feat)
-				scopes = QgsExpressionContextUtils.globalProjectLayerScopes(base_layer)
-				feat_context.appendScopes(scopes)
-				eval = expr.evaluate(feat_context)
-				if eval:
-					return True
-			return False
-
-		def computeF3(intersect_arr):
-			# Compute Iqm from sequence continuity
-			unrestricted_segments = numpy.sum(1 - intersect_arr) # Sum number of unrestricted segments
-			segment_count = intersect_arr.size
-			ratio = unrestricted_segments / segment_count
-			if (ratio >= 0.9):
-				return 0
-			if (ratio >= 0.66):
-				return 2
-			if (ratio >= 0.33):
-				return 3
-			return 5
-
-		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-		# overall progress through the model
+		# Use a multi-step feedback
 		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
-		results = {}
-		tmp = {
-			'points':NamedTemporaryFile(suffix="pts.gpkg"),
-			'normals':NamedTemporaryFile(suffix="normals.gpkg"),
-		}
 
 		# Define source stream net
 		source = self.parameterAsSource(parameters, 'rivnet', context)
 
-		# Define Sink fields
+		# Define Sink
 		sink_fields = source.fields()
 		sink_fields.append(QgsField("Indice F3", QVariant.Int))
-
-		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
 			parameters,
 			self.OUTPUT,
@@ -124,39 +66,35 @@ class IndiceF3(QgsProcessingAlgorithm):
 			source.wkbType(),
 			source.sourceCrs()
 		)
-		results[self.OUTPUT] = dest_id
+
+		anthropic_layers = [layer.id() for layer in
+			self.parameterAsLayerList(parameters, 'antropic_layers', context)]
 
 		# feature count for feedback
 		feature_count = source.featureCount()
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for segment in source.getFeatures():
-			# Split segment into 100 buffers
-			buffer_layer = split_buffer(segment, source)
-			# List for storing normal lenght and intersection
+			# Split segment into 100 sided buffers
+			buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
+
 			intersect_bool = []
-			# Store normal length and intersection in numpy arrays
 			for buffer in buffer_layer.getFeatures():
-				intersect_bool.append(intersects_structs(buffer, buffer_layer, [parameters['roads'], parameters['structs']]))
+				intersect_bool.append(intersects_structs(buffer, buffer_layer, anthropic_layers, parameters))
+			intersect_bool = np.array(intersect_bool)
 
-			intersect_bool = numpy.array(intersect_bool)
-			print("arr_len : ", intersect_bool.size,"\narr_sum", numpy.sum(intersect_bool))
-			print(intersect_bool)
-			# Determin the IQM Score
-
+			# Compute the IQM Score
 			indiceF3 = computeF3(intersect_bool)
-			#Write Index
-			segment.setAttributes(
-				segment.attributes() + [indiceF3]
-			)
+
+			#Write to layer
+			segment.setAttributes(segment.attributes() + [indiceF3])
+
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
 			print(f"{segment[fid_idx]} / {feature_count}")
+			print(f"arr_len : {intersect_bool.size}\narr_sum : {np.sum(intersect_bool)}")
 
-		#Clear temporary files
-		for temp in tmp.values():
-			temp.close()
-		return results
+		return {self.OUTPUT : dest_id}
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)
@@ -178,3 +116,62 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice F3")
+
+
+def evaluate_expression(expression_str, vlayer, feature=None ):
+	expression = QgsExpression(expression_str)
+	context = QgsExpressionContext()
+	if feature:
+		context.setFeature(feature)
+	scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
+	context.appendScopes(scopes)
+	res = expression.evaluate(context)
+	return res
+
+def split_buffer(feature, source, parameters, context, feedback=None):
+	DIVISIONS = 100
+	# Spliting river segment into a fixed number of subsegments.
+	segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
+	alg_param = {
+	'INPUT':segment,
+	'LENGTH':feature.geometry().length() / DIVISIONS,
+	'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT,
+	}
+	split = processing.run('native:splitlinesbylength', alg_param, context=context, is_child_algorithm=True)['OUTPUT']
+
+	side_buffers = []
+	for direction in [1, -1]:
+		# Buffering subsegments
+		alg_param = {
+		'INPUT':split,
+		'OUTPUT_GEOMETRY':0,'WITH_Z':False,
+		'WITH_M':False,
+		'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * 2.5 * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0])",
+		'OUTPUT':'TEMPORARY_OUTPUT'
+		}
+		side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
+	res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_buffers,'CRS':None,'OUTPUT':'TEMPORARY_OUTPUT'}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+	return context.takeResultLayer(res_id)
+
+def intersects_structs(feature, base_layer, struct_lay_ids, parameters):
+	for layer_source in struct_lay_ids:
+		expr = f"""
+			to_int(overlay_intersects('{layer_source}'))
+		"""
+		eval = evaluate_expression(expr, base_layer, feature=feature)
+		if eval:
+			return True
+	return False
+
+def computeF3(intersect_arr):
+	# Compute Iqm from sequence continuity
+	unrestricted_segments = np.sum(1 - intersect_arr) # Sum number of unrestricted segments
+	segment_count = intersect_arr.size
+	ratio = unrestricted_segments / segment_count
+	if (ratio >= 0.9):
+		return 0
+	if (ratio >= 0.66):
+		return 2
+	if (ratio >= 0.33):
+		return 3
+	return 5
