@@ -87,7 +87,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 		outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
 		# Extract specific vertex
-		# TODO : try and remove is_child_algorithm
 		alg_params = {
 			'INPUT': parameters['stream_network'],
 			'VERTICES': '-2',
@@ -208,18 +207,18 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 
 				# Assigne index A1
-				if forest_area >= 0.9:
-					indiceA1 = 0
-				elif forest_area >= 0.66 and agri_area <= 0.33:
-					indiceA1 = 1
-				elif forest_area <= 0.66 and agri_area >= 0.33:
-					indiceA1 = 2
+				if forest_area <= 0.1:
+					indiceA1 = 5
 				elif forest_area <= 0.33:
 					indiceA1 = 4
-				elif forest_area <= 0.1:
-					indiceA1 = 5
+				elif forest_area <= 0.66 and agri_area >= 0.33:
+					indiceA1 = 2
+				elif forest_area >= 0.66 and agri_area <= 0.33:
+					indiceA1 = 1
+				elif forest_area >= 0.9:
+					indiceA1 = 0
 				else:
-					indiceA1 = 5
+					indiceA1 = 2
 			else:
 				# TODO : replace by null value
 				indiceA1 = -1
