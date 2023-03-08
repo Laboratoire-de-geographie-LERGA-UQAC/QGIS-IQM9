@@ -39,6 +39,17 @@ from qgis.core import (
     QgsProperty,
 )
 
+import logging
+LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
+logging.basicConfig(filename="tmp/F2Log.log",
+                                     level=logging.DEBUG,
+                                     format=LOG_FORMAT,
+                                     filemode='w')
+logger = logging.getLogger()
+logger.info("Algo start")
+
+
+
 class IndiceF2(QgsProcessingAlgorithm):
 
     OUTPUT = 'OUTPUT'
@@ -55,8 +66,6 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-
 
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
         # overall progress through the model
@@ -82,11 +91,12 @@ class IndiceF2(QgsProcessingAlgorithm):
         parameters['ratio'] = self.normals_ratio
 
         # Reclassify landUse
-        vectorized_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
+        vectorized_landuse= polygonize_landuse(parameters, context=context, feedback=feedback)
+        #layer = processing.run("native:createspatialindex", {'INPUT':vectorized_landuse_path}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+        QgsProject.instance().addMapLayer(vectorized_landuse)
 
         anthropic_layers = []#[layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
         anthropic_layers.append(vectorized_landuse.id())
-        QgsProject.instance().addMapLayer(vectorized_landuse)
 
 
         # feature count for feedback
@@ -95,16 +105,20 @@ class IndiceF2(QgsProcessingAlgorithm):
 
         for segment in source.getFeatures():
 
-            print(f"working on : {segment[fid_idx]=}, {segment['Segment']=}")
+            logger.info(f"\n\nworking on : {segment[fid_idx]=}, {segment['Segment']=}")
 
             points = pointsAlongGeometry(segment, source, context, feedback=feedback)
+            logger.info(f"points created")
             normals = gen_split_normals(points, parameters, context, feedback= feedback)
+            logger.info(f"normals created")
             mean_unrestricted_distance = get_mean_unrestricted_distance(normals, anthropic_layers, parameters)
+            logger.info(f"mean_unrestricted_distance computed")
             #print(f"{mean_unrestricted_distance=}")
 
 
             # Determin the IQM Score
             indiceF2 = computeF2(mean_unrestricted_distance)
+            logger.info(f"index computed")
             #Write Index
             segment.setAttributes(
                 segment.attributes() + [indiceF2]
@@ -112,6 +126,7 @@ class IndiceF2(QgsProcessingAlgorithm):
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
             print(f"{segment[fid_idx]} / {feature_count}")
+            logger.info(f"segment{segment[fid_idx]} done !")
 
         return {self.OUTPUT : dest_id}
 
@@ -136,7 +151,15 @@ class IndiceF2(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr("Clacule l'indice F2")
 
-def polygonize_landuse(raster_source, context, feedback):
+def polygonize_landuse(parameters, context, feedback):
+    BUFF_SIZE = 2000
+
+    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':BUFF_SIZE,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+
+    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':'TEMPORARY_OUTPUT'}
+    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
+
 
     CLASSES = ['300', '360', '1']
     # Extend classe table to other environments
@@ -151,7 +174,7 @@ def polygonize_landuse(raster_source, context, feedback):
     # Reclassify land use
     alg_params = {
         'DATA_TYPE': 0,  # Byte
-        'INPUT_RASTER': raster_source,
+        'INPUT_RASTER': clip,
         'NODATA_FOR_MISSING': True,
         'NO_DATA': 0,
         'RANGE_BOUNDARIES': 2,  # min <= value <= max
@@ -159,21 +182,21 @@ def polygonize_landuse(raster_source, context, feedback):
         'TABLE': table,
         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
     }
-    raster = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     alg_params = {
         'BAND': 1,
         'EIGHT_CONNECTEDNESS': False,
         'EXTRA': '',
         'FIELD': 'DN',
-        'INPUT': raster,
+        'INPUT': reclass,
         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
     }
     poly_path = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-
-    return QgsVectorLayer(poly_path, 'poly_landuse', "ogr")
+    return QgsVectorLayer(poly_path, "landuse", "ogr")
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
+    logger.info(f"\t\t Evaluating expression")
     expression = QgsExpression(expression_str)
     context = QgsExpressionContext()
     if feature:
@@ -181,6 +204,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
     scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
     context.appendScopes(scopes)
     res = expression.evaluate(context)
+    logger.info(f"\t\t Evaluation {res=} expression")
     return res
 
 def intersects_structs(feature, base_layer, struct_lay_sources):
@@ -231,6 +255,7 @@ def gen_split_normals(points, parameters, context, feedback, output=QgsProcessin
     return context.takeResultLayer(res_id)
 
 def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
+    logger.info(f"\tComputing unrestricted distance")
     # Setting original normals lengths
     normals_lengths = np.array(evaluate_expression("array_agg(length(@geometry))" ,normals))
     river_widths = normals_lengths / parameters['ratio']
@@ -251,11 +276,9 @@ def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
                 )
         )))))
         """
-        obstructed_distances = np.nan_to_num(np.array(evaluate_expression(expr_str, normals)))
-        #print(layer_id)
-        #print(obstructed_distances)
+        obstructed_distances = np.array(evaluate_expression(expr_str, normals))
+        logger.info(f"{obstructed_distances=}")
         diffs_array = np.maximum(diffs_array, obstructed_distances)
-
     unobstructed_len_ratio = (normals_lengths - diffs_array - river_widths) / river_widths
     return np.mean(unobstructed_len_ratio)
 
