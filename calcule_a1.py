@@ -209,19 +209,14 @@ class IndiceA1(QgsProcessingAlgorithm):
 				# Assigne index A1
 				if forest_area <= 0.1:
 					indiceA1 = 5
-				elif forest_area <= 0.33:
+				elif forest_area < 0.33:
 					indiceA1 = 4
-				elif forest_area <= 0.66 and agri_area >= 0.33:
-					indiceA1 = 2
-				elif forest_area >= 0.66 and agri_area <= 0.33:
+				elif forest_area <= 0.66:
+					indiceA1 = 3 if agri_area < 0.33 else 2
+				elif forest_area < 0.9:
 					indiceA1 = 1
-				elif forest_area >= 0.9:
-					indiceA1 = 0
 				else:
-					indiceA1 = 2
-			else:
-				# TODO : replace by null value
-				indiceA1 = -1
+					indiceA1 = 0
 
 			# Add forest area to new featuer
 			feature.setAttributes(

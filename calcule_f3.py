@@ -71,9 +71,12 @@ class IndiceF3(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
+        fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
+        print(f"{fid_idx=}")
+        assert fid_idx >= 0, "field_index not found"
+
         # Reclassify landUse
-        vectorised_landuse = reclassify_landuse(parameters['landuse'], context=context, feedback=feedback)
-        QgsProject.instance().addMapLayer(vectorised_landuse)
+        vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
         anthropic_layers = [layer.id() for layer in
             self.parameterAsLayerList(parameters, 'antropic_layers', context)]
         anthropic_layers.append(vectorised_landuse.id())
@@ -81,7 +84,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
         # feature count for feedback
         feature_count = source.featureCount()
-        fid_idx = source.fields().indexFromName(self.ID_FIELD)
+
 
         for segment in source.getFeatures():
             # Split segment into 100 sided buffers
@@ -172,11 +175,11 @@ def intersects_structs(feature, vlayer, struct_lay_ids, parameters, context):
             return True
     return False
 
-def reclassify_landuse(raster_source, context=None, feedback=None):
+def polygonize_landuse(raster_source, context=None, feedback=None):
     if context == None:
         context = QgsProcessingContext()
 
-    CLASSES = ['300', '360', '1', '101','199','2',]
+    CLASSES = ['300', '360', '1']#, '101','199','2',]
     # Extend classe table to other environments
     table = CLASSES.copy()
     for i in [2, 4, 5, 6, 7, 8]:
