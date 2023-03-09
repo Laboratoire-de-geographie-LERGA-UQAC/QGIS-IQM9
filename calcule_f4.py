@@ -28,7 +28,8 @@ from qgis.core import (QgsProcessing,
 					   QgsVectorLayer,
 					   QgsFeatureRequest,
 					   QgsExpression,
-					   QgsExpressionContext
+					   QgsExpressionContext,
+					   QgsExpressionContextUtils,
 					  )
 
 
@@ -84,15 +85,22 @@ class IndiceF4(QgsProcessingAlgorithm):
 			processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 			return QgsVectorLayer(tmp['normals'].name, 'normals', 'ogr')
 
-		def get_ptref_width(feature):
-			#Evaluating intersection distance
-			expr = QgsExpression(f"""
-				overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0]
-			""")
-			feat_context = QgsExpressionContext()
-			feat_context.setFeature(point)
-			width = expr.evaluate(feat_context)
-			return width
+		def evaluate_expression(expression_str, vlayer, feature=None ):
+			expression = QgsExpression(expression_str)
+			context = QgsExpressionContext()
+			if feature:
+				context.setFeature(feature)
+			scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
+			context.appendScopes(scopes)
+			res = expression.evaluate(context)
+			return res
+
+		def get_points_widths(vlayer, parameters):
+			ptref_expr = f"""
+				array_agg(overlay_nearest('{parameters['ptref_widths']}', largeur_mod)[0])
+			"""
+			result = np.array(evaluate_expression(ptref_expr, vlayer))
+			return result
 
 		def natural_width_ratio(width_array, div_distance):
 			# difs = (width_array[1:] / width_array[:-1]) / width_array[1:] / div_distance
@@ -149,14 +157,10 @@ class IndiceF4(QgsProcessingAlgorithm):
 			#gen points and normals along geometry
 			points_along_line = pointsAlongGeometry(segment)
 
-			# get width at points
-			width_array = []
 			div_distance = segment.geometry().length() / self.DIVS
-			# Store normal length and intersection len in numpy arrays
-			for point in points_along_line.getFeatures():
-				width = get_ptref_width(point)
-				width_array.append(width)
-			width_array = np.array(width_array)
+
+			# Store normal length in numpy arrays
+			width_array = get_points_widths(points_along_line, parameters)
 			print(f"{width_array=}")
 			# Determin the IQM Score
 			indiceF4 = computeF4(width_array, div_distance)
