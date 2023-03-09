@@ -32,13 +32,12 @@ from qgis.core import (
 class IndiceF5(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 	ID_FIELD = 'Id'
+	TRANSECT_RATIO = 3
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=3))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterNumber('transectsegment', 'Transect/segment', optional=True, type=QgsProcessingParameterNumber.Integer, minValue=1, maxValue=100, defaultValue=10))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
@@ -110,10 +109,11 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 def gen_split_normals(points, parameters, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT,):
 	# Geometry by expression
+	TRANSECT_RATIO = 2
 	side_normals = []
 	for angle in [90, -90]:
 		alg_params = {
-			'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {parameters['ratio']},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
+			'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {1 + TRANSECT_RATIO},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
 			'INPUT': points,
 			'OUTPUT_GEOMETRY': 1,  # Line
 			'WITH_M': False,
@@ -171,7 +171,7 @@ def get_intersect_ratio_array(vlayer, parameters):
 	ptref_expr = f"""
 		overlay_nearest('{parameters['ptref_widths']}', largeur_mod)[0]
 	"""
-	expr = QgsExpression(f"array_agg({intersection_expr} / {ptref_expr})")
+	expr = QgsExpression(f"array_agg({intersection_expr} / {ptref_expr} * 2)")
 	result = np.array(evaluate_expression(expr, vlayer))
 	return result
 

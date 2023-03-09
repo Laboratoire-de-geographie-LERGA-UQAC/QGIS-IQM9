@@ -46,7 +46,6 @@ class IndiceF3(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', optional=True, layerType=QgsProcessing.TypeVector, defaultValue=None))
-        self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
         self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
@@ -72,14 +71,14 @@ class IndiceF3(QgsProcessingAlgorithm):
         )
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
-        print(f"{fid_idx=}")
         assert fid_idx >= 0, "field_index not found"
 
-        # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
         anthropic_layers = [layer.id() for layer in
             self.parameterAsLayerList(parameters, 'antropic_layers', context)]
-        anthropic_layers.append(vectorised_landuse.id())
+
+        # Reclassify landUse
+        #vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
+        #anthropic_layers.append(vectorised_landuse.id())
 
 
         # feature count for feedback
@@ -141,6 +140,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
 
 def split_buffer(feature, source, parameters, context, feedback=None):
     DIVISIONS = 25
+    BUFF_RATIO = 1
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
@@ -157,7 +157,7 @@ def split_buffer(feature, source, parameters, context, feedback=None):
         'INPUT':split,
         'OUTPUT_GEOMETRY':0,'WITH_Z':False,
         'WITH_M':False,
-        'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * 2.5 * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0])",
+        'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0])",
         'OUTPUT': 'TEMPORARY_OUTPUT'
         }
         side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])

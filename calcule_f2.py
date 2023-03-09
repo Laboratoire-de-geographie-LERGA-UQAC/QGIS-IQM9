@@ -55,12 +55,11 @@ class IndiceF2(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
     ID_FIELD = 'Id'
     DIVISIONS = 10
-    normals_ratio = 5
+    NORM_RATIO = 4
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', layerType=QgsProcessing.TypeVector, defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        #self.addParameter(QgsProcessingParameterNumber('ratio', 'Ratio', optional=True, type=QgsProcessingParameterNumber.Double, minValue=1, maxValue=5, defaultValue=2.5))
         self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
@@ -88,20 +87,22 @@ class IndiceF2(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        parameters['ratio'] = self.normals_ratio
+        parameters['ratio'] = self.NORM_RATIO
+        anthropic_layers = self.parameterAsLayerList(parameters, 'antropic_layers', context)
+        [QgsProject.instance().addMapLayer(layer) for layer in anthropic_layers]
+        anthropic_layers = [layer.id() for layer in anthropic_layers]
 
         # Reclassify landUse
-        vectorized_landuse= polygonize_landuse(parameters, context=context, feedback=feedback)
+        #vectorized_landuse= polygonize_landuse(parameters, context=context, feedback=feedback)
         #layer = processing.run("native:createspatialindex", {'INPUT':vectorized_landuse_path}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-        QgsProject.instance().addMapLayer(vectorized_landuse)
+        #QgsProject.instance().addMapLayer(vectorized_landuse)
 
-        anthropic_layers = []#[layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
-        anthropic_layers.append(vectorized_landuse.id())
+        #anthropic_layers.append(vectorized_landuse.id())
 
 
         # feature count for feedback
         feature_count = source.featureCount()
-        fid_idx = source.fields().indexFromName(self.ID_FIELD)
+        fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
 
         for segment in source.getFeatures():
 
@@ -203,6 +204,8 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
         context.setFeature(feature)
     scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
     context.appendScopes(scopes)
+    logger.info(f"\t\t\tcontext Layers {context.variablesToMap()['layers']}")
+    print(context.variablesToMap()['layers'])
     res = expression.evaluate(context)
     logger.info(f"\t\t Evaluation {res=} expression")
     return res
@@ -242,7 +245,7 @@ def gen_split_normals(points, parameters, context, feedback, output=QgsProcessin
     side_normals = []
     for angle in [90, -90]:
         alg_params = {
-            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {parameters['ratio']},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
+            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + parameters['ratio']},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
             'INPUT': points,
             'OUTPUT_GEOMETRY': 1,  # Line
             'WITH_M': False,
