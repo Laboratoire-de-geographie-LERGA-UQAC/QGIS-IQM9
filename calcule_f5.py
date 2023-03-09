@@ -66,12 +66,12 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 		for segment in source.getFeatures():
 			# gen transects, and analyse intersection with 'Bande riv'
-			points_along_line = pointsAlongGeometry(segment, source, context, feedback)
+			points_along_line = pointsAlongLines(segment, source, context, feedback)
 			normals = gen_split_normals(points_along_line, parameters, context, feedback)
-			intersect_ratio_array = get_intersect_ratio_array(normals, parameters)
+			br_widths_arr = get_bandriv_width_arr(normals, parameters)
 
 			# Compute the IQM Score
-			indiceF5 = computeF5(intersect_ratio_array)
+			indiceF5 = computeF5(br_widths_arr)
 
 			# Write Index to layer
 			segment.setAttributes(
@@ -80,7 +80,6 @@ class IndiceF5(QgsProcessingAlgorithm):
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
 			print(f"{segment[fid_idx]} / {feature_count}")
-			print(f"mean intersection ratio : {np.mean(intersect_ratio_array)}")
 			print(f"{indiceF5=}")
 
 		return {self.OUTPUT : dest_id}
@@ -106,14 +105,34 @@ class IndiceF5(QgsProcessingAlgorithm):
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
 
+def pointsAlongLines(feature, source, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT):
+	NUMBER = 50
+
+	feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
+
+	# Points along lines
+	alg_params = {
+		'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {NUMBER}"),
+		'END_OFFSET': 0,
+		'INPUT': feature,
+		'START_OFFSET': 0,
+		'OUTPUT': output,
+	}
+	result_id = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+	return context.takeResultLayer(result_id)
 
 def gen_split_normals(points, parameters, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT,):
 	# Geometry by expression
-	TRANSECT_RATIO = 2
+	TRANSECT_RATIO = 1.5
+	TRANSECT_FLAT = 0
+
 	side_normals = []
 	for angle in [90, -90]:
 		alg_params = {
-			'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {1 + TRANSECT_RATIO},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
+			'EXPRESSION':f"""with_variable(
+				'len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + TRANSECT_RATIO},
+				make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))
+			""",
 			'INPUT': points,
 			'OUTPUT_GEOMETRY': 1,  # Line
 			'WITH_M': False,
@@ -123,24 +142,6 @@ def gen_split_normals(points, parameters, context, feedback=None, output=QgsProc
 		side_normals.append(processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
 	res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_normals,'CRS':None,'OUTPUT':'TEMPORARY_OUTPUT'}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 	return context.takeResultLayer(res_id)
-
-def pointsAlongGeometry(feature, source, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT):
-	NUMBER = 100
-
-	# Materialize segment feature
-	feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
-	# Points along geometry
-	alg_params = {
-		'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {NUMBER}"),
-		'END_OFFSET': 0,
-		'INPUT': feature,
-		'START_OFFSET': 0,
-		'OUTPUT': output,
-	}
-	# points = QgsVectorLayer(tmp['points'].name, 'points', 'ogr')
-	# outputs['PointsAlongGeometry']['OUTPUT'] = points
-	result_id = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-	return context.takeResultLayer(result_id)
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
 	expression = QgsExpression(expression_str)
@@ -152,7 +153,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
 	res = expression.evaluate(context)
 	return res
 
-def get_intersect_ratio_array(vlayer, parameters):
+def get_bandriv_width_arr(vlayer, parameters):
 	#Evaluating intersection distance
 	intersection_expr = f"""
 		max(
@@ -168,21 +169,20 @@ def get_intersect_ratio_array(vlayer, parameters):
 			)
 		)
 	"""
-	ptref_expr = f"""
-		overlay_nearest('{parameters['ptref_widths']}', largeur_mod)[0]
-	"""
-	expr = QgsExpression(f"array_agg({intersection_expr} / {ptref_expr} * 2)")
+	expr = QgsExpression(f"array_agg({intersection_expr})")
 	result = np.array(evaluate_expression(expr, vlayer))
 	return result
 
-def computeF5(intersect_arr):
+def computeF5(br_widths_arr):
 	# Compute Iqm from sequence continuity
-	if (np.mean(intersect_arr >= 2)  >= 0.9):
+	if (np.mean(br_widths_arr >= 30)  >= 0.9):
 		return 0
-	if (np.mean(intersect_arr >= 1) >= 0.66):
+	if (np.mean(br_widths_arr >= 30) >= 0.66):
+		return 1
+	if (np.mean(br_widths_arr >= 15) >= 0.66):
 		return 2
-	if (np.mean(intersect_arr >= 0.5) >= 0.66):
+	if (np.mean(br_widths_arr >= 30) >= 0.33):
 		return 3
-	if (np.mean(intersect_arr >= 0.5) >= 0.33):
+	if (np.mean(br_widths_arr >= 15) >= 0.33):
 		return 4
 	return 5
