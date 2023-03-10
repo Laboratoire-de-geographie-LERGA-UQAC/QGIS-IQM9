@@ -89,15 +89,9 @@ class IndiceF2(QgsProcessingAlgorithm):
 
         parameters['ratio'] = self.NORM_RATIO
         anthropic_layers = self.parameterAsLayerList(parameters, 'antropic_layers', context)
-        [QgsProject.instance().addMapLayer(layer) for layer in anthropic_layers]
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
-        # Reclassify landUse
-        #vectorized_landuse= polygonize_landuse(parameters, context=context, feedback=feedback)
-        #layer = processing.run("native:createspatialindex", {'INPUT':vectorized_landuse_path}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-        #QgsProject.instance().addMapLayer(vectorized_landuse)
 
-        #anthropic_layers.append(vectorized_landuse.id())
 
 
         # feature count for feedback
@@ -204,27 +198,14 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
         context.setFeature(feature)
     scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
     context.appendScopes(scopes)
-    logger.info(f"\t\t\tcontext Layers {context.variablesToMap()['layers']}")
-    print(context.variablesToMap()['layers'])
     res = expression.evaluate(context)
     logger.info(f"\t\t Evaluation {res=} expression")
     return res
 
-def intersects_structs(feature, base_layer, struct_lay_sources):
-    # logger.info("checking vector intersection")
-    for layer_source in struct_lay_sources:
-        #Evaluating intersection
-        expr = f"""
-            to_int(overlay_intersects('{layer_source}'))
-        """
-        eval = evaluate_expression(expr, base_layer, feature=feature)
-        if eval:
-            return True
-    return False
 
 def pointsAlongGeometry(feature, source, context, feedback, output=QgsProcessing.TEMPORARY_OUTPUT):
 
-    NUMBER = 15
+    NUMBER = 50
     # Materialize segment feature
     feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     # Points along geometry
@@ -243,9 +224,10 @@ def pointsAlongGeometry(feature, source, context, feedback, output=QgsProcessing
 def gen_split_normals(points, parameters, context, feedback, output=QgsProcessing.TEMPORARY_OUTPUT,):
     # Geometry by expression
     side_normals = []
+    NORMALS_FLAT = 50
     for angle in [90, -90]:
         alg_params = {
-            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + parameters['ratio']},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
+            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + parameters['ratio']} + {NORMALS_FLAT},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
             'INPUT': points,
             'OUTPUT_GEOMETRY': 1,  # Line
             'WITH_M': False,
@@ -260,7 +242,7 @@ def gen_split_normals(points, parameters, context, feedback, output=QgsProcessin
 def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
     logger.info(f"\tComputing unrestricted distance")
     # Setting original normals lengths
-    normals_lengths = np.array(evaluate_expression("array_agg(length(@geometry))" ,normals))
+    normals_lengths = np.array(evaluate_expression("array_agg(max(1, length(@geometry)))" ,normals))
     river_widths = normals_lengths / parameters['ratio']
     diffs_array = np.zeros(normals_lengths.shape)
 

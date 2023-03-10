@@ -77,32 +77,26 @@ class IndiceF3(QgsProcessingAlgorithm):
             self.parameterAsLayerList(parameters, 'antropic_layers', context)]
 
         # Reclassify landUse
-        #vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
-        #anthropic_layers.append(vectorised_landuse.id())
+        vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
+        anthropic_layers.append(vectorised_landuse.id())
 
 
         # feature count for feedback
         feature_count = source.featureCount()
-
-
         for segment in source.getFeatures():
+            print(f"Segment : {segment[fid_idx]} / {feature_count}")
             # Split segment into 100 sided buffers
             buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
-            intersect_bool = []
-            for buffer in buffer_layer.getFeatures():
-                intersect_bool.append(intersects_structs(buffer, buffer_layer, anthropic_layers, parameters, context))
-            intersect_bool = np.array(intersect_bool)
+            intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
 
             # Compute the IQM Score
-            indiceF3 = computeF3(intersect_bool)
+            indiceF3 = computeF3(intersect_array)
 
             #Write to layer
             segment.setAttributes(segment.attributes() + [indiceF3])
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            print(f"{segment[fid_idx]} / {feature_count}")
-            print(f"arr_len : {intersect_bool.size}\narr_sum : {np.sum(intersect_bool)}")
             print(f"{indiceF3=}")
         return {self.OUTPUT : dest_id}
 
@@ -141,6 +135,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
 def split_buffer(feature, source, parameters, context, feedback=None):
     DIVISIONS = 25
     BUFF_RATIO = 1
+    BUFF_FLAT = 15
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
@@ -157,23 +152,26 @@ def split_buffer(feature, source, parameters, context, feedback=None):
         'INPUT':split,
         'OUTPUT_GEOMETRY':0,'WITH_Z':False,
         'WITH_M':False,
-        'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0])",
+        'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
         'OUTPUT': 'TEMPORARY_OUTPUT'
         }
         side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
     res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_buffers,'CRS':None,'OUTPUT':'TEMPORARY_OUTPUT'}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return context.takeResultLayer(res_id)
 
-def intersects_structs(feature, vlayer, struct_lay_ids, parameters, context):
+
+def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
+    obstructed_arr = False
+    print(f"{struct_lay_ids}")
 
     for layer_source in struct_lay_ids:
+        print(layer_source)
         expr = f"""
-            to_int(overlay_intersects('{layer_source}'))
+            array_agg(to_int(overlay_intersects('{layer_source}')))
         """
-        eval = evaluate_expression(expr, vlayer, feature=feature)
-        if eval:
-            return True
-    return False
+        eval = np.array(evaluate_expression(expr, vlayer), dtype=bool)
+        obstructed_arr += eval
+    return obstructed_arr
 
 def polygonize_landuse(raster_source, context=None, feedback=None):
     if context == None:
@@ -216,9 +214,8 @@ def polygonize_landuse(raster_source, context=None, feedback=None):
 
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
-    unrestricted_segments = np.sum(1 - intersect_arr) # Sum number of unrestricted segments
-    segment_count = intersect_arr.size
-    ratio = unrestricted_segments / segment_count
+    ratio = np.mean(1 - intersect_arr) # Sum number of unrestricted segments
+    print(f"Unrestricted ratio : {ratio}")
     if (ratio >= 0.9):
         return 0
     if (ratio >= 0.66):

@@ -124,13 +124,13 @@ def pointsAlongLines(feature, source, context, feedback=None, output=QgsProcessi
 def gen_split_normals(points, parameters, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT,):
 	# Geometry by expression
 	TRANSECT_RATIO = 1.5
-	TRANSECT_FLAT = 0
+	TRANSECT_FLAT = 30
 
 	side_normals = []
 	for angle in [90, -90]:
 		alg_params = {
 			'EXPRESSION':f"""with_variable(
-				'len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + TRANSECT_RATIO},
+				'len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + TRANSECT_RATIO} + {TRANSECT_FLAT},
 				make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))
 			""",
 			'INPUT': points,
