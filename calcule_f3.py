@@ -72,12 +72,11 @@ class IndiceF3(QgsProcessingAlgorithm):
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
         assert fid_idx >= 0, "field_index not found"
-
-        anthropic_layers = [layer.id() for layer in
-            self.parameterAsLayerList(parameters, 'antropic_layers', context)]
+        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
 
         # Reclassify landUse
         vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
+        QgsProject.instance().addMapLayer(vectorised_landuse)
         anthropic_layers.append(vectorised_landuse.id())
 
 
@@ -97,7 +96,8 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            print(f"{indiceF3=}")
+            print(f"Segment : {segment['segment']}")
+            print(f"{indiceF3=}\n\n")
         return {self.OUTPUT : dest_id}
 
     def tr(self, string):
@@ -133,7 +133,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
     return res
 
 def split_buffer(feature, source, parameters, context, feedback=None):
-    DIVISIONS = 25
+    DIVISIONS = 50
     BUFF_RATIO = 1
     BUFF_FLAT = 15
     # Spliting river segment into a fixed number of subsegments.
@@ -152,7 +152,7 @@ def split_buffer(feature, source, parameters, context, feedback=None):
         'INPUT':split,
         'OUTPUT_GEOMETRY':0,'WITH_Z':False,
         'WITH_M':False,
-        'EXPRESSION':f"single_sided_buffer( $geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
+        'EXPRESSION':f"single_sided_buffer( @geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
         'OUTPUT': 'TEMPORARY_OUTPUT'
         }
         side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
@@ -170,7 +170,10 @@ def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
             array_agg(to_int(overlay_intersects('{layer_source}')))
         """
         eval = np.array(evaluate_expression(expr, vlayer), dtype=bool)
+        print(f"{layer_source=}")
+        print(f"{eval=}")
         obstructed_arr += eval
+        print(f"{obstructed_arr=}")
     return obstructed_arr
 
 def polygonize_landuse(raster_source, context=None, feedback=None):

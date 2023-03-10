@@ -39,7 +39,6 @@ class IndiceF1(QgsProcessingAlgorithm):
         )
 
         # Create a QgsVectorLayer from source
-        source_vl = QgsVectorLayer(parameters[self.INPUT],'source','memory')
         if source is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
 
