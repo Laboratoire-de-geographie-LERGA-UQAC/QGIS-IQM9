@@ -55,7 +55,7 @@ class IndiceF2(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
     ID_FIELD = 'Id'
     DIVISIONS = 10
-    NORM_RATIO = 4
+    NORM_RATIO = 0
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', layerType=QgsProcessing.TypeVector, defaultValue=None))
@@ -91,8 +91,11 @@ class IndiceF2(QgsProcessingAlgorithm):
         anthropic_layers = self.parameterAsLayerList(parameters, 'antropic_layers', context)
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
-
-
+        # Reclassify landUse
+        print(parameters)
+        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
+        QgsProject.instance().addMapLayer(vectorised_landuse)
+        anthropic_layers.append(vectorised_landuse.id())
 
         # feature count for feedback
         feature_count = source.featureCount()
@@ -104,12 +107,12 @@ class IndiceF2(QgsProcessingAlgorithm):
 
             points = pointsAlongGeometry(segment, source, context, feedback=feedback)
             logger.info(f"points created")
+
             normals = gen_split_normals(points, parameters, context, feedback= feedback)
             logger.info(f"normals created")
             mean_unrestricted_distance = get_mean_unrestricted_distance(normals, anthropic_layers, parameters)
             logger.info(f"mean_unrestricted_distance computed")
-            #print(f"{mean_unrestricted_distance=}")
-
+            print(f"Segment : {segment['segment']} => {mean_unrestricted_distance=}")
 
             # Determin the IQM Score
             indiceF2 = computeF2(mean_unrestricted_distance)
@@ -120,7 +123,8 @@ class IndiceF2(QgsProcessingAlgorithm):
             )
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            print(f"{segment[fid_idx]} / {feature_count}")
+            print(f"{indiceF2=}")
+            print(f"{segment[fid_idx]} / {feature_count}\n\n")
             logger.info(f"segment{segment[fid_idx]} done !")
 
         return {self.OUTPUT : dest_id}
@@ -147,9 +151,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         return self.tr("Clacule l'indice F2")
 
 def polygonize_landuse(parameters, context, feedback):
-    BUFF_SIZE = 2000
-
-    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':BUFF_SIZE,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':2000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
     buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':'TEMPORARY_OUTPUT'}
@@ -210,7 +212,7 @@ def pointsAlongGeometry(feature, source, context, feedback, output=QgsProcessing
     feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     # Points along geometry
     alg_params = {
-        'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {NUMBER}"),
+        'DISTANCE': QgsProperty.fromExpression(f"length(@geometry) / {NUMBER}"),
         'END_OFFSET': 0,
         'INPUT': feature,
         'START_OFFSET': 0,
@@ -227,7 +229,7 @@ def gen_split_normals(points, parameters, context, feedback, output=QgsProcessin
     NORMALS_FLAT = 50
     for angle in [90, -90]:
         alg_params = {
-            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + parameters['ratio']} + {NORMALS_FLAT},make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))",
+            'EXPRESSION':f"with_variable('len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + parameters['ratio']} + {NORMALS_FLAT},make_line(@geometry,project(@geometry,@len,radians(\"angle\" + {angle}))))",
             'INPUT': points,
             'OUTPUT_GEOMETRY': 1,  # Line
             'WITH_M': False,
@@ -243,7 +245,8 @@ def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
     logger.info(f"\tComputing unrestricted distance")
     # Setting original normals lengths
     normals_lengths = np.array(evaluate_expression("array_agg(max(1, length(@geometry)))" ,normals))
-    river_widths = normals_lengths / parameters['ratio']
+    river_widths = np.array(evaluate_expression(f"array_agg(overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0])" ,normals))
+    logger.info(f"{river_widths=}")
     diffs_array = np.zeros(normals_lengths.shape)
 
     for layer_id in bounding_layer_ids:
@@ -252,11 +255,11 @@ def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
             max( 0, distance(
                 end_point(@geometry),
                 start_point(intersection(
-                $geometry,
+                @geometry,
                 collect_geometries(
                     overlay_nearest(
                         '{layer_id}',
-                        $geometry
+                        @geometry
                     )
                 )
         )))))
@@ -264,13 +267,14 @@ def get_mean_unrestricted_distance(normals, bounding_layer_ids, parameters):
         obstructed_distances = np.array(evaluate_expression(expr_str, normals))
         logger.info(f"{obstructed_distances=}")
         diffs_array = np.maximum(diffs_array, obstructed_distances)
-    unobstructed_len_ratio = (normals_lengths - diffs_array - river_widths) / river_widths
-    return np.mean(unobstructed_len_ratio)
+    unobstructed_lengths = (normals_lengths - diffs_array - river_widths / 2)
+    print(f"{unobstructed_lengths}")
+    return np.mean(unobstructed_lengths)
 
-def computeF2(mean_ratio):
+def computeF2(mean_length):
     # search for anthropisation in buffers
-    barem = ((5, 1), (3, 2), (2, 4)) # barem corresponds to (IQM score, buffer search scale) tuples
-    for score, ratio in barem:
-        if mean_ratio <= ratio:
+    barem = ((5, 15), (3, 30), (2, 49)) # barem corresponds to (IQM score, buffer search scale) tuples
+    for score, dist in barem:
+        if mean_length <= dist:
             return score
     return 0

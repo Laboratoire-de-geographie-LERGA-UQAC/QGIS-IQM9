@@ -117,11 +117,11 @@ class calculerIc(QgsProcessingAlgorithm):
                 if IC >= 1.5:
                     indice_A4 = 0
                 elif IC >= 1.25:
-                    indice_A4 = 1
-                elif IC >= 1.05:
                     indice_A4 = 2
+                elif IC >= 1.05:
+                    indice_A4 = 4
                 else:
-                    indice_A4 = 3
+                    indice_A4 = 6
 
                 feature.setAttributes(
                     feature.attributes() + [indice_A4]

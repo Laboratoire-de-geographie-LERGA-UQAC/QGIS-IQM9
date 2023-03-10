@@ -112,7 +112,7 @@ def pointsAlongLines(feature, source, context, feedback=None, output=QgsProcessi
 
 	# Points along lines
 	alg_params = {
-		'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {NUMBER}"),
+		'DISTANCE': QgsProperty.fromExpression(f"length(@geometry) / {NUMBER}"),
 		'END_OFFSET': 0,
 		'INPUT': feature,
 		'START_OFFSET': 0,
@@ -131,7 +131,7 @@ def gen_split_normals(points, parameters, context, feedback=None, output=QgsProc
 		alg_params = {
 			'EXPRESSION':f"""with_variable(
 				'len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + TRANSECT_RATIO} + {TRANSECT_FLAT},
-				make_line($geometry,project($geometry,@len,radians(\"angle\" + {angle}))))
+				make_line(@geometry,project(@geometry,@len,radians(\"angle\" + {angle}))))
 			""",
 			'INPUT': points,
 			'OUTPUT_GEOMETRY': 1,  # Line
@@ -161,8 +161,8 @@ def get_bandriv_width_arr(vlayer, parameters):
 			length(
 				segments_to_lines(
 					intersection(
-						$geometry,collect_geometries(
-							overlay_intersects('{parameters['bande_riveraine_polly']}',$geometry)
+						@geometry,collect_geometries(
+							overlay_intersects('{parameters['bande_riveraine_polly']}',@geometry)
 						)
 					)
 				)
@@ -182,7 +182,7 @@ def computeF5(br_widths_arr):
 	if (np.mean(br_widths_arr >= 15) >= 0.66):
 		return 2
 	if (np.mean(br_widths_arr >= 30) >= 0.33):
-		return 3
+		return 2
 	if (np.mean(br_widths_arr >= 15) >= 0.33):
-		return 4
-	return 5
+		return 3
+	return 4

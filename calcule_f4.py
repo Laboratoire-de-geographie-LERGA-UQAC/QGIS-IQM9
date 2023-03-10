@@ -55,7 +55,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 			# Points along geometry
 			alg_params = {
-				'DISTANCE': QgsProperty.fromExpression(f"length($geometry) / {self.DIVS}"),
+				'DISTANCE': QgsProperty.fromExpression(f"length(@geometry) / {self.DIVS}"),
 				'END_OFFSET': 0,
 				'INPUT': feature,
 				'START_OFFSET': 0,
@@ -71,7 +71,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 		def gen_normals(points, context):
 			# Geometry by expression
 			alg_params = {
-				'EXPRESSION':f"with_variable('len',overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0] * {parameters['ratio']},extend(make_line($geometry,project($geometry,@len,radians(\"angle\" - 90))),@len,0))",
+				'EXPRESSION':f"with_variable('len',overlay_nearest(\'{parameters['ptref_widths']}\',Largeur_mod)[0] * {parameters['ratio']},extend(make_line(@geometry,project(@geometry,@len,radians(\"angle\" - 90))),@len,0))",
 				#'EXPRESSION':"
 				#'INPUT': outputs['PointsAlongGeometry']['OUTPUT'],
 				'INPUT': points,
