@@ -1,5 +1,4 @@
 
-from collections import Counter
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (QgsProcessing,
                        QgsFeatureSink,
@@ -9,6 +8,9 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingParameterFeatureSource,
                        QgsProcessingParameterVectorLayer,
                        QgsProcessingParameterFeatureSink,
+                       QgsExpression,
+                       QgsExpressionContext,
+                       QgsExpressionContextUtils,
                        QgsVectorLayer,
                        QgsProcessingMultiStepFeedback,
                        QgsProject,
@@ -61,61 +63,23 @@ class IndiceF1(QgsProcessingAlgorithm):
         # Send some information to the user
         feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
 
-        # find and read the structures shp file
-        structures = QgsVectorLayer(self.STRUCTURES_PATH, 'structures','ogr')
+        for feature in source.getFeatures():
 
-        prefix = "segment_"
-        parameters = {
-            "INPUT": structures,
-            "INPUT_2": source.sourceName(),
-            "DISCARD_NONMATCHING": True,
-            "FIELDS_TO_COPY": [self.FID],
-            "MAX_DISTANCE": 8,
-            "PREFIX": prefix,
-            "NEIGHBORS": 2,
-            "OUTPUT": "TEMPORARY_OUTPUT",
-            #"area_units": "m2",
-            #"distance_units": "meters",
-            #"ellipsoid": "EPSG:7019",
-        }
-        outputs['nearest'] = processing.run(
-            "native:joinbynearest",
-            parameters,
-            context=context,feedback=feedback
-        )
-
-        #QgsProject.instance().addMapLayer(outputs['nearest']['OUTPUT'])
-
-        obstructed_ids = [feature[prefix + self.FID] for feature in outputs['nearest']['OUTPUT'].getFeatures()]
-        obstructed_ids = Counter(obstructed_ids)
-
-
-        # Compute the number of steps to display within the progress bar and
-        # get features from source
-        total = 100.0 / source.featureCount() if source.featureCount() else 0
-        features = [f for f in source.getFeatures()]
-        for current, feature in enumerate(features):
-            # Stop the algorithm if cancel button has been clicked
             if feedback.isCanceled():
                 break
-            id = feature.id()
-            if id in obstructed_ids:
-                if obstructed_ids[id] == 1:
-                    indx_f1 = 2
-                elif obstructed_ids[id] > 1:
-                    indx_f1 = 4
-            else:
-                indx_f1 = 0
+
+            buffer = gen_buffer(feature, source, context=context)
+            struct_count = count_structures(buffer, parameters)
+
+            indiceF1 = computeF1(feature, struct_count)
 
             feature.setAttributes(
-                feature.attributes() + [indx_f1]
+                feature.attributes() + [indiceF1]
             )
 
             # Add a feature in the sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-            # Update the progress bar
-            feedback.setProgress(int(current * total))
 
         return {self.OUTPUT: dest_id}
 
@@ -141,3 +105,45 @@ class IndiceF1(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr("""Calcule de l'indice F1, à partire de la base de donnée des structures issue de \n
         https://www.donneesquebec.ca/recherche/dataset/structure#""")
+
+def evaluate_expression(expression_str, vlayer, feature=None ):
+    expression = QgsExpression(expression_str)
+    context = QgsExpressionContext()
+    if feature:
+        context.setFeature(feature)
+    scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
+    context.appendScopes(scopes)
+
+    print(vlayer)
+    print(vlayer in context.variablesToMap()['layers'])
+
+
+    res = expression.evaluate(context)
+    return res
+
+def gen_buffer(feature, vlayer, context, feedback=None, parameters={}):
+    segment = vlayer.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
+    # Buffering subsegments
+    alg_params = {'INPUT':segment,'DISTANCE':1000 ,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    buffer = processing.run("native:buffer", alg_params, context=context, is_child_algorithm=True)['OUTPUT']
+    return context.takeResultLayer(buffer)
+
+def count_structures(buffer, parameters):
+    expr_str = f"""
+    array_length(overlay_intersects('{parameters['structs']}', @geometry))
+    """
+    feature = next(buffer.getFeatures())
+    count = evaluate_expression(expr_str, buffer, feature=feature)
+    print(count)
+    return count
+
+def computeF1(feature, struct_count):
+    length = feature.geometry().length()
+    if not length or not struct_count:
+        return 0
+
+    ratio = struct_count / length
+    if ratio <= 1:
+        return 2
+    elif ratio > 1:
+        return 4
