@@ -31,6 +31,16 @@ import processing
 from tempfile import NamedTemporaryFile
 
 
+import logging
+LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
+logging.basicConfig(filename="tmp/watershedsLog.log",
+                                     level=logging.DEBUG,
+                                     format=LOG_FORMAT,
+                                     filemode='w')
+logger = logging.getLogger()
+logger.info("Algo start")
+
+
 class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
     D8 = 'd8'
@@ -128,9 +138,10 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         for feature in source.getFeatures():
             feedback.pushInfo(f"SEGMENT : {feature['segment']}")
 
+            logger.info("\n"*3+f"Started segment {feature['segment']}")
             # Get feature Id
             fid = feature[self.ID_FIELD]
-            segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
+
             alg_params = {
                 'FIELD': self.ID_FIELD,
                 'INPUT': outputs['SnappedOutlets'],
@@ -139,6 +150,8 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'OUTPUT':  self.tmp[self.TMP_OUTLET].name
             }
             outputs['SegmentOutlet'] = processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+            logger.info(f"Got the vertex")
+
 
             # comput segment Watershed
             alg_params = {
@@ -152,8 +165,13 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             #Polygonize Watershed
             outputs['VectorWatershed'] = self.polygonize_raster(outputs['SegmentWatershed'], context, feedback)#, output=self.tmp[self.TMP_VECTOR1].name)
 
+
+            logger.info(f"Got the watershed")
+
+
             # Compute watershed Area
             watershed_area = self.get_poly_area(outputs['VectorWatershed'], context, feedback)
+            logger.info(f"Polygonized It")
             # A1 Specific Part
                 #Clip landuse
                 #Landuse unique values report
@@ -161,14 +179,15 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             (total_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['VectorWatershed'], context, feedback)
                 #Compute A1
             indiceA1 = self.computeA1(watershed_area, anthro_area, agri_area, forest_area)
+            logger.info(f"Computed A1")
 
 
 
-
-
+            logger.info(f"\nA2 part: ")
             # A2 Specific Part
                 # Clip DAMS
             segment_dams = self.clip_points_to_poly(parameters[self.DAMS],outputs['VectorWatershed'], context, feedback)
+            logger.info(f"Cliped the points")
 
                 # Compute Dam watershed
                 #Compute dam_wshed area
@@ -180,27 +199,34 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'output': self.tmp[self.TMP_SUBWSHED].name
             }
             outputs['DamsWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
+            logger.info(f"Got dams watershed")
+
             #Polygonize Watershed
             outputs['VectorDamsWatershed'] = self.polygonize_raster(outputs['DamsWatershed'], context, feedback)#, output=self.tmp[self.TMP_VECTOR2].name)
+            logger.info(f"Polygonize dat too")
+
             #QgsProject.instance().addMapLayer(QgsVectorLayer(outputs['VectorDamsWatershed'], "Dams_Watershed", "ogr"))
             dams_area = self.get_poly_area(outputs['VectorDamsWatershed'], context, feedback)
-
+            logger.info(f"computed dams area")
             indiceA2 = self.computeA2(watershed_area, dams_area)
+            logger.info(f"Computed A2")
 
 
-
+            logger.info(f"\nA3/F1 Part :")
             # A3 F1 join Part
                 #Create 1km buffer
                 # 1 Km buffer around river
+            segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
             alg_params = {
                 'INPUT': segment,
                 'DISTANCE':1000,
                 'SEGMENTS':5,'END_CAP_STYLE':0,
                 'JOIN_STYLE':0,'MITER_LIMIT':2,
                 'DISSOLVE':True,
-                'OUTPUT':self.tmp[self.TMP_BUFFER1].name
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['Buffer_1km'] = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+            logger.info(f"Got 1km buffer")
                 # Clip watershed by buffer
             alg_params = {
                 'INPUT': outputs['VectorWatershed'],
@@ -208,7 +234,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'OUTPUT':self.tmp[self.TMP_BUFFER2].name
                 }
             outputs['Watershed_1km'] = processing.run("native:clip", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-
+            logger.info(f"Clipped it to watershed")
                 # count number of dams -> A3 Penalty
             # Count number of dames in watershed
             dams = self.parameterAsVectorLayer(parameters, self.DAMS, context)
@@ -220,7 +246,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             }
             processing.run("native:selectbylocation", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             dam_count_1km = dams.selectedFeatureCount()
-
+            logger.info(f"Counted dams")
 
                 # Count number of structurs -> Compute F1
             structs = self.parameterAsVectorLayer(parameters, self.STRUCTS, context)
@@ -232,14 +258,16 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             }
             processing.run("native:selectbylocation", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
             struct_count = structs.selectedFeatureCount()
+            logger.info(f"Count structures")
             indiceF1 = self.computeF1(feature, struct_count)
+            logger.info(f"Computed F1")
 
 
-
-
+            logger.info(f"\nA3 Part :")
             #A3 specific part
                 # Create 2x river Buffer
             feature_mean_width = self.ptrefs_mean_width(feature, source, parameters[self.PTREFS])
+            logger.info(f"Computed mean width")
             params = {
                 'INPUT':segment,
                 'DISTANCE':feature_mean_width * 2.5,
@@ -247,11 +275,12 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'OUTPUT' : self.tmp[self.TMP_BUFFER2].name,
             }
             outputs['SegmentBuffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+            logger.info(f"Created buffer")
                 # Landuse area report -> A3
             (total_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['SegmentBuffer'], context, feedback)
 
             indiceA3 = self.computeA3(total_area, anthro_area, agri_area,dam_count_1km)
-
+            logger.info(f"Computed A3")
             print(f"{indiceA1=}, {indiceA2=},{indiceA3=}, {indiceF1=}")
 
             # Add forest area to new featuer
@@ -259,6 +288,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                     feature.attributes() + [indiceA1, indiceA2, indiceA3, indiceF1]
             )
 
+            logger.info(f"\t\tFinished segment {feature['segment']}")
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
@@ -455,7 +485,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         if land_area == 0:
             return dam_penality + 2
 
-        ratio = (anthro_area + agri_area) / land_area
+        ratio = (anthro_area) / land_area
         print(f"{ratio=}")
         if ratio >= 0.9:
             return dam_penality + 4
