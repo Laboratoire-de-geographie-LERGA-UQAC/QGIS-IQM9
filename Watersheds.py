@@ -30,11 +30,10 @@ from qgis.core import (
 import processing
 from tempfile import NamedTemporaryFile
 
+
 class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
     D8 = 'd8'
-    WATERSHED = 'watershed'
-    OUTLETS = 'outlets'
     STREAM_NET = 'stream_network'
     OUTPUT = 'OUTPUT'
     ID_FIELD = "Id"
@@ -42,6 +41,28 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
     DAMS = 'dams'
     STRUCTS = 'structures'
     PTREFS = 'ptrefs_largeur'
+
+    TMP_WATERSHED = 'watershed'
+    TMP_OUTLETS = 'outlets'
+    TMP_OUTLET = 'outlet'
+    TMP_SUBWSHED = 'soubwshed'
+    TMP_BUFFER1 = 'buffer1'
+    TMP_BUFFER2 = 'buffer2'
+    TMP_LANDUSE = 'landuse'
+    TMP_VECTOR1 = 'vector1'
+    TMP_VECTOR2 = 'vector2'
+
+    tmp = {
+        TMP_WATERSHED : NamedTemporaryFile(suffix="-watershed.tif"),
+        TMP_OUTLETS : NamedTemporaryFile(suffix="-outlets.shp"),
+        TMP_OUTLET : NamedTemporaryFile(suffix="-outlet.shp"),
+        TMP_SUBWSHED : NamedTemporaryFile(suffix="-subwshed.tif"),
+        TMP_BUFFER1 : NamedTemporaryFile(suffix="-buffer1.shp"),
+        TMP_BUFFER2 : NamedTemporaryFile(suffix="-buffer2.shp"),
+        TMP_LANDUSE : NamedTemporaryFile(suffix="-landuse.tif"),
+        TMP_VECTOR1 : NamedTemporaryFile(suffix="-vector1"),
+        TMP_VECTOR2 : NamedTemporaryFile(suffix="-vector2"),
+    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer(self.D8, 'D8', defaultValue=None))
@@ -58,11 +79,6 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
         results = {}
         outputs = {}
-        tmp = {
-            self.D8 : NamedTemporaryFile(suffix="-D8.tif"),
-            self.WATERSHED : NamedTemporaryFile(suffix="-watershed.tif"),
-            self.OUTLETS : NamedTemporaryFile(suffix="-outlets.shp"),
-        }
 
 
         source = self.parameterAsVectorLayer(parameters, self.STREAM_NET, context)
@@ -86,16 +102,6 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        """
-        # compute_d8_GRHQ
-        alg_params = {
-            'dem': parameters['dem'],
-            'stream_network': parameters['stream_network'],
-            'd8pointer': tmp[self.D8].name
-        }
-        outputs['Compute_d8_grhq'] = processing.run('model:compute_d8_GRHQ', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
-        """
-
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
             return {}
@@ -106,7 +112,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         alg_params = {
             'dem': parameters[self.D8],
             'stream_network': parameters['stream_network'],
-            'snapped_outlets': tmp[self.OUTLETS].name
+            'snapped_outlets': self.tmp[self.TMP_OUTLETS].name
         }
         outputs['SnappedOutlets'] = processing.run('model:Extract And Snap Outlets', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['snapped_outlets']
         feedback.setCurrentStep(2)
@@ -120,16 +126,17 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 
         for feature in source.getFeatures():
+            feedback.pushInfo(f"SEGMENT : {feature['segment']}")
+
             # Get feature Id
             fid = feature[self.ID_FIELD]
             segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
-
             alg_params = {
                 'FIELD': self.ID_FIELD,
                 'INPUT': outputs['SnappedOutlets'],
                 'OPERATOR': 0,  # =
                 'VALUE': str(fid),
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT':  self.tmp[self.TMP_OUTLET].name
             }
             outputs['SegmentOutlet'] = processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
@@ -139,11 +146,11 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'd8_pntr': parameters[self.D8],
                 'esri_pntr': False,
                 'pour_pts': outputs['SegmentOutlet'],
-                'output': tmp[self.WATERSHED].name
+                'output': self.tmp[self.TMP_WATERSHED].name
             }
             outputs['SegmentWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
             #Polygonize Watershed
-            outputs['VectorWatershed'] = self.polygonize_raster(outputs['SegmentWatershed'], context, feedback)
+            outputs['VectorWatershed'] = self.polygonize_raster(outputs['SegmentWatershed'], context, feedback)#, output=self.tmp[self.TMP_VECTOR1].name)
 
             # Compute watershed Area
             watershed_area = self.get_poly_area(outputs['VectorWatershed'], context, feedback)
@@ -170,11 +177,11 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'd8_pntr': parameters[self.D8],
                 'esri_pntr': False,
                 'pour_pts': segment_dams,
-                'output': tmp[self.WATERSHED].name
+                'output': self.tmp[self.TMP_SUBWSHED].name
             }
             outputs['DamsWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
             #Polygonize Watershed
-            outputs['VectorDamsWatershed'] = self.polygonize_raster(outputs['DamsWatershed'], context, feedback)
+            outputs['VectorDamsWatershed'] = self.polygonize_raster(outputs['DamsWatershed'], context, feedback)#, output=self.tmp[self.TMP_VECTOR2].name)
             #QgsProject.instance().addMapLayer(QgsVectorLayer(outputs['VectorDamsWatershed'], "Dams_Watershed", "ogr"))
             dams_area = self.get_poly_area(outputs['VectorDamsWatershed'], context, feedback)
 
@@ -191,16 +198,14 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'SEGMENTS':5,'END_CAP_STYLE':0,
                 'JOIN_STYLE':0,'MITER_LIMIT':2,
                 'DISSOLVE':True,
-                #'OUTPUT':f"tmp/buffer{fid}.gpkg"
-                'OUTPUT':QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT':self.tmp[self.TMP_BUFFER1].name
             }
             outputs['Buffer_1km'] = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
                 # Clip watershed by buffer
             alg_params = {
                 'INPUT': outputs['VectorWatershed'],
                 'OVERLAY': outputs['Buffer_1km'],
-                #'OUTPUT': f"tmp/clipped_buffer_{fid}.gpkg"
-                'OUTPUT':QgsProcessing.TEMPORARY_OUTPUT
+                'OUTPUT':self.tmp[self.TMP_BUFFER2].name
                 }
             outputs['Watershed_1km'] = processing.run("native:clip", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
@@ -239,7 +244,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 'INPUT':segment,
                 'DISTANCE':feature_mean_width * 2.5,
                 'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-                'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT,
+                'OUTPUT' : self.tmp[self.TMP_BUFFER2].name,
             }
             outputs['SegmentBuffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
                 # Landuse area report -> A3
@@ -257,7 +262,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-        for file in tmp.values():
+        for file in self.tmp.values():
             file.close()
 
         return {self.OUTPUT : dest_id}
@@ -296,12 +301,12 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             'RANGE_BOUNDARIES': 2,  # min <= value <= max
             'RASTER_BAND': 1,
             'TABLE': CLASSES,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+            'OUTPUT': self.tmp[self.TMP_LANDUSE].name
         }
         reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
         return reclass
 
-    def polygonize_raster(self, raster_id, context, feedback):
+    def polygonize_raster(self, raster_id ,context, feedback, output=QgsProcessing.TEMPORARY_OUTPUT):
         # Inputs : Raster ID
         # Output : layer_id
         alg_params = {
@@ -310,11 +315,11 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             'EXTRA': '',
             'FIELD': 'DN',
             'INPUT': raster_id,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+            'OUTPUT': output
         }
         return processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-    def clip_raster(self, raster_id, mask_id, context, feedback):
+    def clip_raster(self, raster_id, mask_id, context, feedback, output=QgsProcessing.TEMPORARY_OUTPUT):
 
         alg_params = {
         'ALPHA_BAND': False,
@@ -333,8 +338,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         'TARGET_EXTENT': None,
         'X_RESOLUTION': None,
         'Y_RESOLUTION': None,
-        #'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" ,
-        'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+        'OUTPUT' : output
         }
         return processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
@@ -345,7 +349,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         alg_params = {
             'BAND': 1,
             'INPUT': clipped,
-            'OUTPUT_TABLE': QgsProcessing.TEMPORARY_OUTPUT #tmp['table'].name
+            'OUTPUT_TABLE': QgsProcessing.TEMPORARY_OUTPUT
         }
         table = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT_TABLE']
         table = context.takeResultLayer(table)
@@ -362,23 +366,33 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         tot_area = sum([feat.geometry().area() for feat in vlayer.getFeatures()])
         return tot_area
 
-    def clip_points_to_poly(self,points_id, polygon_id, context, feedback):
+    def clip_points_to_poly(self,points_id, polygon_id, context, feedback, output=QgsProcessing.TEMPORARY_OUTPUT):
         # Clip Dams
         alg_params = {
             'INPUT': points_id,
             'INTERSECT': polygon_id,
             'PREDICATE': [6],  # are within
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT#"tmp/dam_points.shp"
+            'OUTPUT': output
         }
 
         extracted_dams = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
         return extracted_dams
 
     def computeA1(self, total_area, anthro_area, agri_area, forest_area):
+
         if total_area == 0:
             return 2
         forest_ratio = forest_area / total_area
         agri_ratio = agri_area / total_area
+        print(f"""
+        Computing A1:
+            {total_area=}
+            {agri_area=}
+            {forest_area=}
+
+            {forest_ratio=}
+            {agri_ratio=}
+        """)
         if forest_ratio <= 0.1:
             return 5
         elif forest_ratio < 0.33:
