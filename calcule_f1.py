@@ -113,11 +113,6 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
         context.setFeature(feature)
     scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
     context.appendScopes(scopes)
-
-    print(vlayer)
-    print(vlayer in context.variablesToMap()['layers'])
-
-
     res = expression.evaluate(context)
     return res
 
