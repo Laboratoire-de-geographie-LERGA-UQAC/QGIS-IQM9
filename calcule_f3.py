@@ -75,7 +75,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters['landuse'], context=context, feedback=feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
         QgsProject.instance().addMapLayer(vectorised_landuse)
         anthropic_layers.append(vectorised_landuse.id())
 
@@ -176,11 +176,15 @@ def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
         print(f"{obstructed_arr=}")
     return obstructed_arr
 
-def polygonize_landuse(raster_source, context=None, feedback=None):
-    if context == None:
-        context = QgsProcessingContext()
+def polygonize_landuse(parameters, context, feedback):
+    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-    CLASSES = ['300', '360', '1']#, '101','199','2',]
+    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':'TEMPORARY_OUTPUT'}
+    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
+
+
+    CLASSES = ['300', '360', '1']
     # Extend classe table to other environments
     table = CLASSES.copy()
     for i in [2, 4, 5, 6, 7, 8]:
@@ -193,7 +197,7 @@ def polygonize_landuse(raster_source, context=None, feedback=None):
     # Reclassify land use
     alg_params = {
         'DATA_TYPE': 0,  # Byte
-        'INPUT_RASTER': raster_source,
+        'INPUT_RASTER': clip,
         'NODATA_FOR_MISSING': True,
         'NO_DATA': 0,
         'RANGE_BOUNDARIES': 2,  # min <= value <= max
@@ -201,19 +205,19 @@ def polygonize_landuse(raster_source, context=None, feedback=None):
         'TABLE': table,
         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
     }
-    raster = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     alg_params = {
         'BAND': 1,
         'EIGHT_CONNECTEDNESS': False,
         'EXTRA': '',
         'FIELD': 'DN',
-        'INPUT': raster,
+        'INPUT': reclass,
         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
     }
-    poly_path = processing.run('gdal:polygonize', alg_params, context=context, is_child_algorithm=True)['OUTPUT']
+    poly_path = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    return QgsVectorLayer(poly_path, "landuse", "ogr")
 
-    return QgsVectorLayer(poly_path, 'poly land use', "ogr")
 
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
