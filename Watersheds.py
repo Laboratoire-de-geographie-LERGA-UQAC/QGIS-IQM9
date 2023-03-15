@@ -136,7 +136,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 
         for feature in source.getFeatures():
-            feedback.pushInfo(f"SEGMENT : {feature['segment']}")
+            print(f"\n\n\nSegment : {feature['segment']}")
 
             logger.info("\n"*3+f"Started segment {feature['segment']}")
             # Get feature Id
@@ -176,9 +176,9 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                 #Clip landuse
                 #Landuse unique values report
                 # Function to parse unique value report
-            (total_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['VectorWatershed'], context, feedback)
+            (land_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['VectorWatershed'], context, feedback)
                 #Compute A1
-            indiceA1 = self.computeA1(watershed_area, anthro_area, agri_area, forest_area)
+            indiceA1 = self.computeA1(land_area, anthro_area, agri_area, forest_area)
             logger.info(f"Computed A1")
 
 
@@ -231,10 +231,11 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             alg_params = {
                 'INPUT': outputs['VectorWatershed'],
                 'OVERLAY': outputs['Buffer_1km'],
-                'OUTPUT':self.tmp[self.TMP_BUFFER2].name
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT#self.tmp[self.TMP_BUFFER2].name
                 }
             outputs['Watershed_1km'] = processing.run("native:clip", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
             logger.info(f"Clipped it to watershed")
+            #QgsProject.instance().addMapLayer(context.takeResultLayer(outputs['Watershed_1km']))
                 # count number of dams -> A3 Penalty
             # Count number of dames in watershed
             dams = self.parameterAsVectorLayer(parameters, self.DAMS, context)
@@ -277,9 +278,9 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             outputs['SegmentBuffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
             logger.info(f"Created buffer")
                 # Landuse area report -> A3
-            (total_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['SegmentBuffer'], context, feedback)
+            (land_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['SegmentBuffer'], context, feedback)
 
-            indiceA3 = self.computeA3(total_area, anthro_area, agri_area,dam_count_1km)
+            indiceA3 = self.computeA3(land_area, anthro_area,agri_area,dam_count_1km)
             logger.info(f"Computed A3")
             print(f"{indiceA1=}, {indiceA2=},{indiceA3=}, {indiceF1=}")
 
@@ -317,9 +318,11 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         # OUTPUT : layer_id
         CLASSES = [
             '50','56','1','210','235','1','501','735','1', #Forestiers
+            '60', '77', '1', '30', '31', '1', #Sols nues
             '101','199','2', #Agricoles
             '300', '360', '3', #Anthropisé
-            '2000', '8000', '1'#Milieux humides
+            '20', '27', '4',
+            '2000', '9000', '1'#Milieux humides
         ]
 
         # Reclassify land use
@@ -385,11 +388,12 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         table = context.takeResultLayer(table)
 
         class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
-        total_area = sum(class_areas.values())
+        water_area = class_areas.get(4, 0)
         anthro_area = class_areas.get(3, 0)
         agri_area = class_areas.get(2, 0)
         forest_area = class_areas.get(1, 0)
-        return (total_area, anthro_area, agri_area, forest_area)
+        land_area = anthro_area + agri_area + forest_area
+        return (land_area, anthro_area, agri_area, forest_area)
 
     def get_poly_area(self, vlayer_id, context, feedback):
         vlayer = QgsVectorLayer(vlayer_id, "Poly", "ogr")
@@ -408,15 +412,15 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         extracted_dams = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
         return extracted_dams
 
-    def computeA1(self, total_area, anthro_area, agri_area, forest_area):
+    def computeA1(self, land_area, anthro_area, agri_area, forest_area):
 
-        if total_area == 0:
+        if land_area == 0:
             return 2
-        forest_ratio = forest_area / total_area
-        agri_ratio = agri_area / total_area
+        forest_ratio = forest_area / land_area
+        agri_ratio = agri_area / land_area
         print(f"""
         Computing A1:
-            {total_area=}
+            {land_area=}
             {agri_area=}
             {forest_area=}
 
@@ -438,7 +442,13 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         if main_area == 0 :
             return 2
         ratio = dams_area / main_area
-        print(f"{dams_area=} / {main_area=} = {ratio=}")
+
+        print(f"""
+        Computing A2:
+            {main_area=}
+            {dams_area=}
+            {ratio=}
+        """)
         if ratio < 0.05:
             return 0
         elif 0.05 <= ratio < 0.33:
@@ -453,7 +463,13 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         if not length or not struct_count:
             return 0
 
-        ratio = struct_count / length
+        ratio = struct_count / length * 1000
+        print(f"""
+        Computing F1:
+            {length=}
+            {struct_count=}
+            {ratio=}
+        """)
         if ratio <= 1:
             return 2
         elif ratio > 1:
@@ -485,8 +501,17 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         if land_area == 0:
             return dam_penality + 2
 
-        ratio = (anthro_area) / land_area
-        print(f"{ratio=}")
+        ratio = (anthro_area + agri_area) / land_area
+        print(f"""
+        Computing A3:
+            {dam_count=}
+            {anthro_area + agri_area=}
+            {land_area=}
+            {ratio=}
+
+            if {agri_area=} was not computed :
+            ratio={(anthro_area) / land_area}
+        """)
         if ratio >= 0.9:
             return dam_penality + 4
         elif ratio >= 0.66:

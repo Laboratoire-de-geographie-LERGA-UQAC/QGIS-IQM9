@@ -41,7 +41,7 @@ from qgis.core import (
 
 import logging
 LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(filename="tmp/F2Log.log",
+logging.basicConfig(filename="/tmp/F2Log.log",
                                      level=logging.DEBUG,
                                      format=LOG_FORMAT,
                                      filemode='w')

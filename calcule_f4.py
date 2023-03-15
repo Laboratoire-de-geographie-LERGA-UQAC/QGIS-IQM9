@@ -104,6 +104,8 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 		def natural_width_ratio(width_array, div_distance):
 			# difs = (width_array[1:] / width_array[:-1]) / width_array[1:] / div_distance
+			if not width_array.size:
+				return 1
 			difs_percent = (width_array[1:] - width_array[:-1])/ width_array[1:]
 			difs_specific = difs_percent * 1000 / div_distance
 			print(f"{difs_specific=}")
@@ -156,8 +158,8 @@ class IndiceF4(QgsProcessingAlgorithm):
 		for segment in source.getFeatures():
 			#gen points and normals along geometry
 			points_along_line = pointsAlongGeometry(segment)
-
 			div_distance = segment.geometry().length() / self.DIVS
+			print(f"{div_distance=}")
 
 			# Store normal length in numpy arrays
 			width_array = get_points_widths(points_along_line, parameters)
