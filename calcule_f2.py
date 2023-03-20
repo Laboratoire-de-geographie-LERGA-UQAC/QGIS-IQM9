@@ -169,7 +169,7 @@ def polygonize_landuse(parameters, context, feedback):
     buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':QgsProcessingUtils.generateTempFilename("landuse_mask.tif")}
-    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
+    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     CLASSES = ['300', '360', '1']
 
