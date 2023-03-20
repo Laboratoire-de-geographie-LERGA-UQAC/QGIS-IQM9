@@ -112,7 +112,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
             'stream_network': parameters['stream_network'],
             'snapped_outlets': QgsProcessingUtils.generateTempFilename("outlets.shp"),
         }
-        outputs['SnappedOutlets'] = processing.run('model:Extract And Snap Outlets', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['snapped_outlets']
+        outputs['SnappedOutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['snapped_outlets']
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
             return {}
