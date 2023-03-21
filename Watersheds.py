@@ -368,17 +368,19 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         alg_params = {
             'BAND': 1,
             'INPUT': clipped,
-            'OUTPUT_TABLE': QgsProcessingUtils.generateTempFilename("table.shp"),
+            'OUTPUT_TABLE': QgsProcessingUtils.generateTempFilename("table.gpkg"),
         }
         table = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT_TABLE']
+        logger.info(f"table path {table}")
         table = QgsVectorLayer(table, 'table', 'ogr')
-
+        logger.info(f"{table.isValid()=}, {table.featureCount()=}")
         class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
         water_area = class_areas.get(4, 0)
         anthro_area = class_areas.get(3, 0)
         agri_area = class_areas.get(2, 0)
         forest_area = class_areas.get(1, 0)
         land_area = anthro_area + agri_area + forest_area
+        logger.info(f"{land_area=}, {forest_area=}, {agri_area=}, {anthro_area=}, {water_area=}")
         return (land_area, anthro_area, agri_area, forest_area)
 
     def get_poly_area(self, vlayer_id, context, feedback):

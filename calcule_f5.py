@@ -79,8 +79,8 @@ class IndiceF5(QgsProcessingAlgorithm):
 			)
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
-			print(f"{segment[fid_idx]} / {feature_count}")
-			print(f"{indiceF5=}")
+			# print(f"{segment[fid_idx]} / {feature_count}")
+			# print(f"{indiceF5=}")
 
 		return {self.OUTPUT : dest_id}
 
@@ -104,6 +104,9 @@ class IndiceF5(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
+
+	def flags(self):
+		return QgsProcessingAlgorithm.FlagNoThreading
 
 def pointsAlongLines(feature, source, context, feedback=None, output=QgsProcessing.TEMPORARY_OUTPUT):
 	NUMBER = 50

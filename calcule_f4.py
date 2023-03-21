@@ -108,9 +108,9 @@ class IndiceF4(QgsProcessingAlgorithm):
 				return 1
 			difs_percent = (width_array[1:] - width_array[:-1])/ width_array[1:]
 			difs_specific = difs_percent * 1000 / div_distance
-			print(f"{difs_specific=}")
+			# print(f"{difs_specific=}")
 			unnatural_widths = np.where((difs_specific < self.LTHRESH) | (difs_specific > self.UTHRESH))[0].size
-			print(f"{unnatural_widths=}")
+			# print(f"{unnatural_widths=}")
 			return 1 - (unnatural_widths / difs_percent.size)
 
 		def computeF4(width_array, div_distance):
@@ -159,11 +159,11 @@ class IndiceF4(QgsProcessingAlgorithm):
 			#gen points and normals along geometry
 			points_along_line = pointsAlongGeometry(segment)
 			div_distance = segment.geometry().length() / self.DIVS
-			print(f"{div_distance=}")
+			# print(f"{div_distance=}")
 
 			# Store normal length in numpy arrays
 			width_array = get_points_widths(points_along_line, parameters)
-			print(f"{width_array=}")
+			# print(f"{width_array=}")
 			# Determin the IQM Score
 			indiceF4 = computeF4(width_array, div_distance)
 			#Write Index
@@ -172,7 +172,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 			)
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
-			print(f"{segment[fid_idx]} / {feature_count}")
+			# print(f"{segment[fid_idx]} / {feature_count}")
 
 		#Clear temporary files
 		for temp in tmp.values():
@@ -199,3 +199,6 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice F4")
+
+	def flags(self):
+		return QgsProcessingAlgorithm.FlagNoThreading

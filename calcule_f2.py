@@ -41,19 +41,21 @@ from qgis.core import (
     QgsProperty,
 )
 
-import logging
+import sys
 LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(filename="C:\\temp\\loggerF2.log",
-                                     level=logging.DEBUG,
-                                     format=LOG_FORMAT,
-                                     filemode='w')
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.DEBUG,
+    format=LOG_FORMAT,
+    filemode='w')
+
 logger = logging.getLogger()
 logger.info("Algo start")
 
 class IndiceF2(QgsProcessingAlgorithm):
 
     OUTPUT = 'OUTPUT'
-    ID_FIELD = 'Id'
+    ID_FIELD = 'fid'
     DIVISIONS = 10
     NORM_RATIO = 0
 
@@ -111,7 +113,7 @@ class IndiceF2(QgsProcessingAlgorithm):
             if feedback.isCanceled():
                 break
 
-            logging.info(f"\n\nworking on : {segment[fid_idx]=}, {segment['Segment']=}")
+            logging.info(f"\n\nworking on : {segment[fid_idx]=}, {segment.id()=}")
 
             points = pointsAlongGeometry(segment, source, context=context, feedback=feedback, output=QgsProcessingUtils.generateTempFilename("points.shp"))
             segment_mean_width = get_segment_mean_width(segment, source, parameters, context=context, feedback=feedback)
@@ -124,7 +126,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 
             mean_unrestricted_distance = get_mean_unrestricted_distance(normals, segment_mean_width, anthropic_layers, parameters)
             logging.info(f"mean_unrestricted_distance computed")
-            logging.info(f"Segment : {segment['segment']} => {mean_unrestricted_distance=}")
+            logging.info(f"Segment : {segment.id()} => {mean_unrestricted_distance=}")
 
             # Determin the IQM Score
             indiceF2 = computeF2(mean_unrestricted_distance)
@@ -135,7 +137,7 @@ class IndiceF2(QgsProcessingAlgorithm):
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
             logging.info(f"{indiceF2=}")
-            logging.info(f"{segment[fid_idx]} / {feature_count}\n\n")
+            logging.info(f"{segment.id()} / {feature_count}\n\n")
             logging.info(f"segment{segment[fid_idx]} done !")
 
         return {self.OUTPUT : dest_id}
@@ -166,12 +168,18 @@ class IndiceF2(QgsProcessingAlgorithm):
 
 def polygonize_landuse(parameters, context, feedback):
 
+    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+
+    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':'TEMPORARY_OUTPUT'}
+    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
+
     CLASSES = ['300', '360', '1']
 
     # Reclassify land use
     alg_params = {
         'DATA_TYPE': 0,  # Byte
-        'INPUT_RASTER': parameters['landuse'],#clip,
+        'INPUT_RASTER': clip ,#parameters['landuse'],
         'NODATA_FOR_MISSING': True,
         'NO_DATA': 0,
         'RANGE_BOUNDARIES': 2,  # min <= value <= max

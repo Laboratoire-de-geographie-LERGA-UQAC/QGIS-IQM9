@@ -83,7 +83,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         # feature count for feedback
         feature_count = source.featureCount()
         for segment in source.getFeatures():
-            print(f"Segment : {segment[fid_idx]} / {feature_count}")
+            # print(f"Segment : {segment[fid_idx]} / {feature_count}")
             # Split segment into 100 sided buffers
             buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
             intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
@@ -96,8 +96,8 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            print(f"Segment : {segment['segment']}")
-            print(f"{indiceF3=}\n\n")
+            # print(f"Segment : {segment['segment']}")
+            # print(f"{indiceF3=}\n\n")
         return {self.OUTPUT : dest_id}
 
     def tr(self, string):
@@ -120,6 +120,9 @@ class IndiceF3(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F3")
+
+    def flags(self):
+        return QgsProcessingAlgorithm.FlagNoThreading
 
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
@@ -162,18 +165,18 @@ def split_buffer(feature, source, parameters, context, feedback=None):
 
 def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
     obstructed_arr = False
-    print(f"{struct_lay_ids}")
+    # print(f"{struct_lay_ids}")
 
     for layer_source in struct_lay_ids:
-        print(layer_source)
+        # print(layer_source)
         expr = f"""
             array_agg(to_int(overlay_intersects('{layer_source}')))
         """
         eval = np.array(evaluate_expression(expr, vlayer), dtype=bool)
-        print(f"{layer_source=}")
-        print(f"{eval=}")
+        # print(f"{layer_source=}")
+        # print(f"{eval=}")
         obstructed_arr += eval
-        print(f"{obstructed_arr=}")
+        # print(f"{obstructed_arr=}")
     return obstructed_arr
 
 def polygonize_landuse(parameters, context, feedback):
@@ -185,14 +188,6 @@ def polygonize_landuse(parameters, context, feedback):
 
 
     CLASSES = ['300', '360', '1']
-    # Extend classe table to other environments
-    table = CLASSES.copy()
-    for i in [2, 4, 5, 6, 7, 8]:
-        for j in range(len(CLASSES)):
-            c = int(CLASSES[j])
-            if (j + 1) % 3 != 0:
-                c += i * 1000
-            table.append(str(c))
 
     # Reclassify land use
     alg_params = {
@@ -202,7 +197,7 @@ def polygonize_landuse(parameters, context, feedback):
         'NO_DATA': 0,
         'RANGE_BOUNDARIES': 2,  # min <= value <= max
         'RASTER_BAND': 1,
-        'TABLE': table,
+        'TABLE': CLASSES,
         'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
     }
     reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
@@ -222,7 +217,7 @@ def polygonize_landuse(parameters, context, feedback):
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
     ratio = np.mean(1 - intersect_arr) # Sum number of unrestricted segments
-    print(f"Unrestricted ratio : {ratio}")
+    # print(f"Unrestricted ratio : {ratio}")
     if (ratio >= 0.9):
         return 0
     if (ratio >= 0.66):
