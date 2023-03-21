@@ -43,7 +43,7 @@ from qgis.core import (
 
 import logging
 LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(filename="tmp/loggerF2.log",
+logging.basicConfig(filename="C:\\temp\\loggerF2.log",
                                      level=logging.DEBUG,
                                      format=LOG_FORMAT,
                                      filemode='w')
@@ -93,7 +93,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context, feedback)
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
@@ -165,18 +165,13 @@ class IndiceF2(QgsProcessingAlgorithm):
         return self.tr("Clacule l'indice F2")
 
 def polygonize_landuse(parameters, context, feedback):
-    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':QgsProcessingUtils.generateTempFilename("Buffer.shp")}
-    buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-
-    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':QgsProcessingUtils.generateTempFilename("landuse_mask.tif")}
-    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
     CLASSES = ['300', '360', '1']
 
     # Reclassify land use
     alg_params = {
         'DATA_TYPE': 0,  # Byte
-        'INPUT_RASTER': clip,
+        'INPUT_RASTER': parameters['landuse'],#clip,
         'NODATA_FOR_MISSING': True,
         'NO_DATA': 0,
         'RANGE_BOUNDARIES': 2,  # min <= value <= max
