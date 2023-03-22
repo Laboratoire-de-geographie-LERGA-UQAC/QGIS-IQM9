@@ -7,7 +7,6 @@ Author : Karim Mehour
 """
 
 import numpy as np
-
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (

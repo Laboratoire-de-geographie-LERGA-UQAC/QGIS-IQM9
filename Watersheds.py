@@ -33,7 +33,7 @@ import processing
 
 import logging
 LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(filename="tmp/watershedsLog.log",
+logging.basicConfig(filename="C:\\temp\\watershedsLog.log",
                                      level=logging.DEBUG,
                                      format=LOG_FORMAT,
                                      filemode='w')
@@ -124,9 +124,9 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 
         for feature in source.getFeatures():
-            logger.info(f"\n\n\nSegment : {feature['segment']} / {source.featureCount()}")
+            logger.info(f"\n\n\nSegment : {feature.id()} / {source.featureCount()}")
 
-            logger.info("\n"*3+f"Started segment {feature['segment']}")
+            logger.info("\n"*3+f"Started segment {feature.id()}")
             # Get feature Id
             fid = feature[self.ID_FIELD]
 
@@ -277,7 +277,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
                     feature.attributes() + [indiceA1, indiceA2, indiceA3, indiceF1]
             )
 
-            logger.info(f"\t\tFinished segment {feature['segment']}")
+            logger.info(f"\t\tFinished segment {feature.id()}")
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
