@@ -1,4 +1,4 @@
-# Guide d'utilisation de l'outil IQM:
+# Guide d'utilisation de l'outil automatisé (IQM<sub>9</sub>):
 
 ## Prérequis:
 ### QGIS
