@@ -69,7 +69,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
             'structures': outputs['FiltrerStructures']['New_structures'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['A1A2A3F1'] = processing.run('script:watershedrework', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['A1A2A3F1'] = processing.run('script:calculA123', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
         feedback.setCurrentStep(3)
         if feedback.isCanceled():

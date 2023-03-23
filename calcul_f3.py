@@ -25,7 +25,7 @@ from qgis.core import (
     QgsProcessingParameterMultipleLayers,
     QgsFeatureRequest,
     QgsExpression,
-    QgsProcessingContext,
+    QgsProcessingUtils,
     QgsExpressionContext,
     QgsExpressionContextUtils,
     QgsProcessingAlgorithm,
@@ -76,14 +76,17 @@ class IndiceF3(QgsProcessingAlgorithm):
 
         # Reclassify landUse
         vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
-        QgsProject.instance().addMapLayer(vectorised_landuse)
+        QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
 
         # feature count for feedback
         feature_count = source.featureCount()
         for segment in source.getFeatures():
-            # print(f"Segment : {segment[fid_idx]} / {feature_count}")
+
+            if feedback.isCanceled():
+                return {}
+            
             # Split segment into 100 sided buffers
             buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
             intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
@@ -96,8 +99,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            # print(f"Segment : {segment['segment']}")
-            # print(f"{indiceF3=}\n\n")
+
         return {self.OUTPUT : dest_id}
 
     def tr(self, string):
@@ -121,8 +123,6 @@ class IndiceF3(QgsProcessingAlgorithm):
     def shortHelpString(self):
         return self.tr("Clacule l'indice F3")
 
-    def flags(self):
-        return QgsProcessingAlgorithm.FlagNoThreading
 
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
@@ -139,12 +139,13 @@ def split_buffer(feature, source, parameters, context, feedback=None):
     DIVISIONS = 50
     BUFF_RATIO = 1
     BUFF_FLAT = 15
+
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
     'INPUT':segment,
     'LENGTH':feature.geometry().length() / DIVISIONS,
-    'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT,
+    'OUTPUT': QgsProcessingUtils.generateTempFilename("split_line.shp"),
     }
     split = processing.run('native:splitlinesbylength', alg_param, context=context, is_child_algorithm=True)['OUTPUT']
 
@@ -156,34 +157,31 @@ def split_buffer(feature, source, parameters, context, feedback=None):
         'OUTPUT_GEOMETRY':0,'WITH_Z':False,
         'WITH_M':False,
         'EXPRESSION':f"single_sided_buffer( @geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
-        'OUTPUT': 'TEMPORARY_OUTPUT'
+        'OUTPUT': QgsProcessingUtils.generateTempFilename("side_buffers.shp")
         }
         side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
-    res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_buffers,'CRS':None,'OUTPUT':'TEMPORARY_OUTPUT'}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    
+    alg_params = {'LAYERS':side_buffers,'CRS':None,'OUTPUT': QgsProcessingUtils.generateTempFilename("Buffers.shp")}
+    res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return context.takeResultLayer(res_id)
 
 
 def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
     obstructed_arr = False
-    # print(f"{struct_lay_ids}")
 
     for layer_source in struct_lay_ids:
-        # print(layer_source)
         expr = f"""
             array_agg(to_int(overlay_intersects('{layer_source}')))
         """
         eval = np.array(evaluate_expression(expr, vlayer), dtype=bool)
-        # print(f"{layer_source=}")
-        # print(f"{eval=}")
         obstructed_arr += eval
-        # print(f"{obstructed_arr=}")
     return obstructed_arr
 
 def polygonize_landuse(parameters, context, feedback):
-    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':'TEMPORARY_OUTPUT'}
+    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':QgsProcessingUtils.generateTempFilename("Buffer.shp")}
     buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':'TEMPORARY_OUTPUT'}
+    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':QgsProcessingUtils.generateTempFilename("clip.tif")}
     clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
 
 
@@ -198,7 +196,7 @@ def polygonize_landuse(parameters, context, feedback):
         'RANGE_BOUNDARIES': 2,  # min <= value <= max
         'RASTER_BAND': 1,
         'TABLE': CLASSES,
-        'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        'OUTPUT': QgsProcessingUtils.generateTempFilename("reclass_and_use.tif")
     }
     reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
@@ -208,7 +206,7 @@ def polygonize_landuse(parameters, context, feedback):
         'EXTRA': '',
         'FIELD': 'DN',
         'INPUT': reclass,
-        'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        'OUTPUT': QgsProcessingUtils.generateTempFilename("Vector_landuse.shp")
     }
     poly_path = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return QgsVectorLayer(poly_path, "landuse", "ogr")

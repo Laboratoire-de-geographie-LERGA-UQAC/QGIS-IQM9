@@ -228,8 +228,6 @@ def pointsAlongGeometry(feature, source, context, feedback, output=QgsProcessing
         'START_OFFSET': 0,
         'OUTPUT': output,
     }
-    # points = QgsVectorLayer(tmp['points'].name, 'points', 'ogr')
-    # outputs['PointsAlongGeometry']['OUTPUT'] = points
     result_id = processing.run('native:pointsalonglines', alg_params, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return QgsVectorLayer(result_id, "points", "ogr")
 
