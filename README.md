@@ -34,7 +34,8 @@ Les scripts sont disponibles sur le site officiel de l'outil QGIS avec pyqgis. U
 
 Une fois ajouté dans le répertoire des scripts, l'algorithme Processing de l'outil sera disponible dans QGIS.
 
-![IQM_Toolbox](https://user-images.githubusercontent.com/84189822/227258271-8ce029ae-f6b2-431b-b85d-abcc6cfecd33.PNG)
+
+![image](https://user-images.githubusercontent.com/84189822/227292525-bc2e5ef8-59e1-4b1d-8b55-e095aedb0ec2.png)
 
 # Préparation des données
 Avant d'utiliser l'outil, il est important de s'assurer que toutes les couches de données sont projetées de la même manière. Il est recommandé d'utiliser le système de référence de coordonnées (CRS) Lambert conique conforme du Québec pour assurer la cohérence des données spatiales.
@@ -57,8 +58,11 @@ source : https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territ
 
 ## Données vectorielles:
 ### CRHQ
-Le réseau hydrographique utilisé provient du cadre de référence hydrologique (CRHQ). Dans la géodatabase du CRHQ, contient des données vectorielles linéaires des cours d'eau, qui sont divisés en unités écologiques aquatiques (UEA) et des points de référence contenant des variables descriptives.
-L’outil nécessite la couche vectorielle des UEA “UEA_L_N2”, celle-ci doit être recadrée à l'emprise de la zone d'étude. Et aussi la couche vectorielle “PtRef” et la table attributaire “PtRef_mod_lotique” correspondantes, afin de lier les informations des points de références aux UEA.
+**Le réseau hydrographique** utilisé provient du cadre de référence hydrologique (CRHQ). Dans la géodatabase du CRHQ, contient des données vectorielles linéaires des cours d'eau, qui sont divisés en unités écologiques aquatiques (UEA) et des **points de référence** contenant des variables descriptives.
+L’outil nécessite:
+- la couche vectorielle des UEA **“UEA_L_N2”**, celle-ci doit être recadrée à l'emprise de la zone d'étude. 
+- La couche vectorielle **“PtRef”** et la table attributaire **“PtRef_mod_lotique”** correspondantes.
+L'utilisateur ***doit*** lier l'attribut "Largeur_mod" de la table “PtRef_mod_lotique” aux points de réferences, pour cela, le script "Join PtRef - Mod" du module "IQM_utils" peut être utilisé.
 
 source : https://www.donneesquebec.ca/recherche/dataset/crhq
 
@@ -86,7 +90,14 @@ Source:  https://www.donneesquebec.ca/recherche/fr/dataset/carte-ecoforestiere-a
 
 
 # Utilisation de l’outil
-## Calcule de l’IQM complet
 
-Plusieurs sous module sont mise a disposition pour le calcule des indicateurs individuellement. Dans le catégorie “IQM - indices”
 
+Un ensemble de 15 scripts ont été créés suite au développement, et exploitent l'interface de QGIS pour s’executer, effectuer l'analyse des données et afficher les résultats obtenus.
+
+L’outil est structurée de la manière suivante : 
+- Le module **indicateurs_IQM** regroupe l'ensemble des scripts de calcul pour chaque indicateur de manière individuelle. 
+- Le module **IQM_utils** regroupe quant à lui les scripts et fonctions d'aide au prétraitement des données. 
+- L'algorithme principal **Calcul_IQM** a été conçu pour combiner les prétraitements et le calcul de tous les indicateurs. 
+
+
+![image](https://user-images.githubusercontent.com/84189822/227307189-d37efd2c-e010-461a-af50-fbe83b35c2d3.png)
