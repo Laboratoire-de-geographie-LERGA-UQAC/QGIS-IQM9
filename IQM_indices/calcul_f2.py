@@ -1,22 +1,5 @@
-# -*- coding: utf-8 -*-
-
-"""
-***************************************************************************
-*                                                                         *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or     *
-*   (at your option) any later version.                                   *
-*                                                                         *
-***************************************************************************
-"""
-
-
 import numpy as np
 import processing
-import logging
-
-from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
     QgsProcessing,
@@ -41,16 +24,6 @@ from qgis.core import (
     QgsProperty,
 )
 
-import sys
-LOG_FORMAT = "%(levelname)s %(asctime)s - %(message)s"
-logging.basicConfig(
-    stream=sys.stdout,
-    level=logging.DEBUG,
-    format=LOG_FORMAT,
-    filemode='w')
-
-logger = logging.getLogger()
-logger.info("Algo start")
 
 class IndiceF2(QgsProcessingAlgorithm):
 
@@ -210,7 +183,6 @@ def evaluate_expression(expression_str, vlayer, feature=None, context=None):
 
     if feature:
         context.setFeature(feature)
-    #feature = next(vlayer.getFeatures())
 
     return expression.evaluate(context)
 
@@ -256,7 +228,7 @@ def gen_split_normals(points, parameters, width=0,context=None, feedback=None):
 
     res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_normals,'CRS':None,'OUTPUT':QgsProcessingUtils.generateTempFilename("merged_layer.shp")}, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     logger.info(f"{res_id=}")
-    #return context.takeResultLayer(res_id)
+	
     return QgsVectorLayer(res_id, 'normals', "ogr" )
 
 def get_mean_unrestricted_distance(normals, river_width, bounding_layer_ids, parameters):

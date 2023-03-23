@@ -67,8 +67,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		# D8 Created #
-
 		# Reclassify land use
 		alg_params = {
 			'DATA_TYPE': 0,  # Byte
@@ -103,14 +101,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		############ LOOP GOES HERE ############
-		# Looping through vertices
-		#fid_index = outputs['ExtractSpecificVertex']['OUTPUT'].fields().indexFromName('fid')
-		#fid_ids = outputs['ExtractSpecificVertex']['OUTPUT'].uniqueValues(fid_index)
-
-
-
-		#for fid in list(fid_ids)[189:192]:
 		feature_count = source.featureCount()
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
@@ -142,10 +132,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 			outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 			print(outputs['Watershed']['output'])
 
-
-			# rlayer = QgsRasterLayer(outputs['Watershed']['output'], 'watershed')
-			# QgsProject.instance().addMapLayer(rlayer)
-
 			# Polygonize (raster to vector)
 			alg_params = {
 				'BAND': 1,
@@ -156,7 +142,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-			# QgsProject.instance().addMapLayer()
 
 			# Drain_area Land_use
 			alg_params = {
@@ -176,7 +161,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'TARGET_EXTENT': None,
 				'X_RESOLUTION': None,
 				'Y_RESOLUTION': None,
-				#'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" ,
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)

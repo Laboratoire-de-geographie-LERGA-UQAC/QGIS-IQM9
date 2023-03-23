@@ -1,25 +1,12 @@
-# -*- coding: utf-8 -*-
-
-"""
-***************************************************************************
-*                                                                         *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or     *
-*   (at your option) any later version.                                   *
-*                                                                         *
-***************************************************************************
-"""
-
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
-from qgis.core import (QgsProcessing,
-                       QgsFeatureSink,
-                       QgsField,
-                       QgsProcessingException,
-                       QgsProcessingAlgorithm,
-                       QgsProcessingParameterFeatureSource,
-                       QgsProcessingParameterFeatureSink,
-                       )
+from qgis.core import (
+	QgsProcessing,
+	QgsFeatureSink,
+	QgsField,
+	QgsProcessingException,
+	QgsProcessingAlgorithm,
+	QgsProcessingParameterFeatureSource,
+	QgsProcessingParameterFeatureSink)
 from qgis import processing
 
 
@@ -28,8 +15,7 @@ class calculerIc(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
 
     def initAlgorithm(self, config=None):
-        # We add the input vector features source. It can have any kind of
-        # geometry.
+
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
@@ -38,9 +24,6 @@ class calculerIc(QgsProcessingAlgorithm):
             )
         )
 
-        # We add a feature sink in which to store our processed features (this
-        # usually takes the form of a newly created vector layer when the
-        # algorithm is run in QGIS).
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
@@ -49,19 +32,13 @@ class calculerIc(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, feedback):
-        # Retrieve the feature source and sink. The 'dest_id' variable is used
-        # to uniquely identify the feature sink, and must be included in the
-        # dictionary returned by the processAlgorithm function.
+
         source = self.parameterAsSource(
             parameters,
             self.INPUT,
             context
         )
 
-        # If source was not found, throw an exception to indicate that the algorithm
-        # encountered a fatal error. The exception text can be any string, but in this
-        # case we use the pre-built invalidSourceError method to return a standard
-        # helper text for when a source cannot be evaluated
         if source is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT))
 
@@ -78,13 +55,8 @@ class calculerIc(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        # Send some information to the user
         feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
 
-        # If sink was not created, throw an exception to indicate that the algorithm
-        # encountered a fatal error. The exception text can be any string, but in this
-        # case we use the pre-built invalidSinkError method to return a standard
-        # helper text for when a sink cannot be evaluated
         if sink is None:
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
 
@@ -93,7 +65,7 @@ class calculerIc(QgsProcessingAlgorithm):
             # get features from source
             total = 100.0 / source.featureCount() if source.featureCount() else 0
             features = [f for f in source.getFeatures()]
-            print(len(features))
+
             for current, feature in enumerate(features):
                 # Stop the algorithm if cancel button has been clicked
                 if feedback.isCanceled():

@@ -1,10 +1,3 @@
-"""
-Model exported as python.
-Name : Network Watershed from DEM
-Group :
-With QGIS : 33000
-"""
-
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (

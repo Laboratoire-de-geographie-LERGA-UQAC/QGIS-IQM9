@@ -1,11 +1,3 @@
-"""
-Model exported as python.
-Name : IQM indice F5
-Group :
-With QGIS : 32802
-Author : Karim Mehour
-"""
-
 import numpy as np
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
@@ -25,7 +17,7 @@ from qgis.core import (
     QgsProcessingParameterFeatureSink,
     QgsProperty,
 )
-import sys
+
 
 class IndiceF5(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'

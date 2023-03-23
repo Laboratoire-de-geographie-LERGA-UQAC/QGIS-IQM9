@@ -1,29 +1,24 @@
-"""
-Model exported as python.
-Name : Indice A3
-Group :
-With QGIS : 32601
-"""
+
 from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
-from qgis.core import (QgsProcessing,
-                        QgsField,
-                        QgsFeatureSink,
-                        QgsVectorLayer,
-                        QgsFeatureRequest,
-                        QgsProcessingAlgorithm,
-                        QgsProcessingMultiStepFeedback,
-                        QgsProcessingParameterRasterLayer,
-                        QgsProcessingParameterNumber,
-                        QgsProcessingParameterVectorLayer,
-                        QgsProcessingParameterFeatureSink,
-                        QgsProcessingParameterRasterDestination,
-                        QgsCoordinateReferenceSystem,
-                        QgsProcessingFeatureSourceDefinition,
-                        QgsExpression,
-                        QgsExpressionContext,
-                        QgsExpressionContextUtils,
-                    )
+from qgis.core import (
+	QgsProcessing,
+	QgsField,
+	QgsFeatureSink,
+	QgsVectorLayer,
+	QgsFeatureRequest,
+	QgsProcessingAlgorithm,
+	QgsProcessingMultiStepFeedback,
+	QgsProcessingParameterRasterLayer,
+	QgsProcessingParameterNumber,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterFeatureSink,
+	QgsProcessingParameterRasterDestination,
+	QgsCoordinateReferenceSystem,
+	QgsProcessingFeatureSourceDefinition,
+	QgsExpression,
+	QgsExpressionContext,
+	QgsExpressionContextUtils)
 import processing
 
 
@@ -70,7 +65,6 @@ class IndiceA3(QgsProcessingAlgorithm):
             source.wkbType(),
             source.sourceCrs()
         )
-
 
         # Defin dams layer
         dams = self.parameterAsVectorLayer(parameters, 'dams', context)

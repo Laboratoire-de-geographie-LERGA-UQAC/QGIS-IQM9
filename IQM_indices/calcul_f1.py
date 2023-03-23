@@ -1,23 +1,23 @@
 
-from qgis.PyQt.QtCore import QCoreApplication, QVariant
-from qgis.core import (QgsProcessing,
-                       QgsFeatureSink,
-                       QgsField,
-                       QgsProcessingException,
-                       QgsProcessingAlgorithm,
-                       QgsProcessingParameterFeatureSource,
-                       QgsProcessingParameterVectorLayer,
-                       QgsProcessingParameterFeatureSink,
-                       QgsExpression,
-                       QgsExpressionContext,
-                       QgsExpressionContextUtils,
-                       QgsVectorLayer,
-                       QgsProcessingMultiStepFeedback,
-                       QgsProject,
-                       QgsFeatureRequest,
-                       QgsSpatialIndex
-                       )
 from qgis import processing
+from qgis.PyQt.QtCore import QCoreApplication, QVariant
+from qgis.core import (
+	QgsProcessing,
+	QgsFeatureSink,
+	QgsField,
+	QgsProcessingException,
+	QgsProcessingAlgorithm,
+	QgsProcessingParameterFeatureSource,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterFeatureSink,
+	QgsExpression,
+	QgsExpressionContext,
+	QgsExpressionContextUtils,
+	QgsVectorLayer,
+	QgsProcessingMultiStepFeedback,
+	QgsProject,
+	QgsFeatureRequest,
+	QgsSpatialIndex)
 
 
 class IndiceF1(QgsProcessingAlgorithm):

@@ -1,10 +1,3 @@
-"""
-Model exported as python.
-Name : Extract And Snap Outlets
-Group :
-With QGIS : 33000
-"""
-
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback

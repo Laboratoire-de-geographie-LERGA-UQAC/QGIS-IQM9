@@ -1,10 +1,3 @@
-"""
-Model exported as python.
-Name : compute_d8_GRHQ
-Group :
-With QGIS : 33000
-"""
-
 from qgis.core import (
     QgsProcessing,
     QgsProcessingUtils,

@@ -1,24 +1,24 @@
 
+import processing
 from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
-from qgis.core import (QgsProcessing,
-					   QgsField,
-					   QgsFeatureSink,
-					   QgsVectorLayer,
-					   )
-from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
-from qgis.core import QgsProcessingParameterRasterLayer
-from qgis.core import QgsProcessingParameterNumber
-from qgis.core import QgsProcessingParameterVectorLayer
-from qgis.core import QgsProcessingParameterFeatureSink
-from qgis.core import QgsProcessingParameterRasterDestination
-from qgis.core import QgsCoordinateReferenceSystem
-import processing
+from qgis.core import (
+	QgsProcessing,
+	QgsField,
+	QgsFeatureSink,
+	QgsVectorLayer,
+	QgsProcessingAlgorithm,
+	QgsProcessingMultiStepFeedback,
+	QgsProcessingParameterRasterLayer,
+	QgsProcessingParameterNumber,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterFeatureSink,
+	QgsProcessingParameterRasterDestination,
+	QgsCoordinateReferenceSystem)
 
 
 class IndiceA2(QgsProcessingAlgorithm):
-	ID_FIELD = 'Id'
+	ID_FIELD = 'fid'
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
@@ -26,8 +26,6 @@ class IndiceA2(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8', defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
-
-
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -69,7 +67,6 @@ class IndiceA2(QgsProcessingAlgorithm):
 
 
 		# Extract specific vertex
-		# TODO : try and remove is_child_algorithm
 		alg_params = {
 			'INPUT': parameters['stream_network'],
 			'VERTICES': '-2',
@@ -86,9 +83,8 @@ class IndiceA2(QgsProcessingAlgorithm):
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for feature in source.getFeatures():
+
 			fid = feature[fid_idx]
-			# For each segment
-			# Compute waterhed
 			if feedback.isCanceled():
 				return {}
 
