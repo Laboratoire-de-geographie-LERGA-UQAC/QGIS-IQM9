@@ -33,7 +33,8 @@ Les scripts sont disponibles sur le site officiel de l'outil QGIS avec pyqgis. U
 - Cliquez sur "OK" pour enregistrer les modifications.
 
 Une fois ajouté dans le répertoire des scripts, l'algorithme Processing de l'outil sera disponible dans QGIS.
-![image2](https://user-images.githubusercontent.com/84189822/227154239-9432213d-c423-4da4-a9da-9ba8943b7141.png)
+
+![IQM_Toolbox](https://user-images.githubusercontent.com/84189822/227258271-8ce029ae-f6b2-431b-b85d-abcc6cfecd33.PNG)
 
 # Préparation des données
 Avant d'utiliser l'outil, il est important de s'assurer que toutes les couches de données sont projetées de la même manière. Il est recommandé d'utiliser le système de référence de coordonnées (CRS) Lambert conique conforme du Québec pour assurer la cohérence des données spatiales.
