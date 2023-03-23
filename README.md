@@ -22,7 +22,7 @@ Pour intégrer l'algorithme Processing de l'outil à QGIS, vous devez téléchar
 Les scripts sont disponibles sur le site officiel de l'outil QGIS avec pyqgis. Une fois que vous avez téléchargé les scripts, vous pouvez les ajouter à QGIS en suivant les instructions ci-dessous :
 - Ouvrez QGIS et cliquez sur l'option "Préférences" dans la barre de menus.
 - Sélectionnez "Options" dans le menu déroulant.
-    
+
 ![image1](https://user-images.githubusercontent.com/84189822/227153987-c880d5d2-b5e8-4606-8ed1-2b7a528285c4.png)
 
 - Dans la boîte de dialogue Options de traitement, sélectionnez l'onglet "Scripts".
@@ -60,8 +60,9 @@ source : https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territ
 ### CRHQ
 **Le réseau hydrographique** utilisé provient du cadre de référence hydrologique (CRHQ). Dans la géodatabase du CRHQ, contient des données vectorielles linéaires des cours d'eau, qui sont divisés en unités écologiques aquatiques (UEA) et des **points de référence** contenant des variables descriptives.
 L’outil nécessite:
-- la couche vectorielle des UEA **“UEA_L_N2”**, celle-ci doit être recadrée à l'emprise de la zone d'étude. 
+- la couche vectorielle des UEA **“UEA_L_N2”**, celle-ci doit être recadrée à l'emprise de la zone d'étude.
 - La couche vectorielle **“PtRef”** et la table attributaire **“PtRef_mod_lotique”** correspondantes.
+
 L'utilisateur ***doit*** lier l'attribut "Largeur_mod" de la table “PtRef_mod_lotique” aux points de réferences, pour cela, le script "Join PtRef - Mod" du module "IQM_utils" peut être utilisé.
 
 source : https://www.donneesquebec.ca/recherche/dataset/crhq
@@ -94,10 +95,10 @@ Source:  https://www.donneesquebec.ca/recherche/fr/dataset/carte-ecoforestiere-a
 
 Un ensemble de 15 scripts ont été créés suite au développement, et exploitent l'interface de QGIS pour s’executer, effectuer l'analyse des données et afficher les résultats obtenus.
 
-L’outil est structurée de la manière suivante : 
-- Le module **indicateurs_IQM** regroupe l'ensemble des scripts de calcul pour chaque indicateur de manière individuelle. 
-- Le module **IQM_utils** regroupe quant à lui les scripts et fonctions d'aide au prétraitement des données. 
-- L'algorithme principal **Calcul_IQM** a été conçu pour combiner les prétraitements et le calcul de tous les indicateurs. 
+L’outil est structurée de la manière suivante :
+- Le module **indicateurs_IQM** regroupe l'ensemble des scripts de calcul pour chaque indicateur de manière individuelle.
+- Le module **IQM_utils** regroupe quant à lui les scripts et fonctions d'aide au prétraitement des données.
+- L'algorithme principal **Calcul_IQM** a été conçu pour combiner les prétraitements et le calcul de tous les indicateurs.
 
 
 ![image](https://user-images.githubusercontent.com/84189822/227307189-d37efd2c-e010-461a-af50-fbe83b35c2d3.png)
