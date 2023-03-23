@@ -21,12 +21,11 @@ from qgis.core import (
 	QgsExpressionContextUtils,
 	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterVectorLayer,
-	QgsProcessingParameterNumber,
 	QgsProcessingParameterFeatureSink,
 	QgsProperty,
 	QgsProject,
 )
-
+import sys
 
 class IndiceF5(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
@@ -59,6 +58,8 @@ class IndiceF5(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
+		print(sys.path)
+
 		# feature count for feedback
 		feature_count = source.featureCount()
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
@@ -78,8 +79,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 			)
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
-			# print(f"{segment[fid_idx]} / {feature_count}")
-			# print(f"{indiceF5=}")
+
 
 		return {self.OUTPUT : dest_id}
 

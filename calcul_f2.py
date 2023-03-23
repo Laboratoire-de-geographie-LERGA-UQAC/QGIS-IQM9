@@ -160,9 +160,6 @@ class IndiceF2(QgsProcessingAlgorithm):
     def groupId(self):
         return 'iqm'
 
-    def flags(self):
-        return QgsProcessingAlgorithm.FlagNoThreading
-
     def shortHelpString(self):
         return self.tr("Clacule l'indice F2")
 
@@ -276,15 +273,18 @@ def get_mean_unrestricted_distance(normals, river_width, bounding_layer_ids, par
             max( 0, distance(
                 end_point($geometry),
                 start_point(intersection(
-                $geometry,
-                collect_geometries(
-                    overlay_nearest(
-                        '{layer_id}',
-                        $geometry
+                    $geometry,
+                    collect_geometries(
+                        overlay_nearest(
+                            '{layer_id}',
+                            $geometry
+                        )
                     )
-                )
-        )))))
-        """
+                ))
+            ))
+        )"""
+
+
         obstructed_distances = np.array(evaluate_expression(expr_str, normals, context=parameters['expContext']))
         logging.info(f"{obstructed_distances=}\n")
         diffs_array = np.maximum(diffs_array, obstructed_distances)

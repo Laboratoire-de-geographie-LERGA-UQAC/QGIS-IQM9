@@ -1,32 +1,37 @@
 
-from tempfile import NamedTemporaryFile as Ntf
+import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
-					   QgsField,
-					   QgsFeatureSink,
-					   QgsVectorLayer,
-					   QgsProject,
-					   QgsRasterLayer
-					  )
-from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
-from qgis.core import QgsProcessingParameterRasterLayer
-from qgis.core import QgsProcessingParameterNumber
-from qgis.core import QgsProcessingParameterVectorLayer
-from qgis.core import QgsProcessingParameterFeatureSink
-from qgis.core import QgsProcessingParameterRasterDestination
-from qgis.core import QgsCoordinateReferenceSystem
-import processing
+	QgsField,
+	QgsFeatureSink,
+	QgsVectorLayer,
+	QgsProcessingAlgorithm,
+	QgsProcessingMultiStepFeedback,
+	QgsProcessingParameterRasterLayer,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterFeatureSink,
+	QgsCoordinateReferenceSystem)
+
+
+
+
+
+
+
+
 
 
 class IndiceA1(QgsProcessingAlgorithm):
-	ID_FIELD = 'Id'
+	ID_FIELD = 'fid'
 	OUTPUT = 'OUTPUT'
+	D8 = 'D8'
+	LANDUSE = 'landuse'
+	RIVNET = 'stream_network'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer', defaultValue=None))
-		self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Cours d\'eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, self.tr('WBT D8 Pointer'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('Utilisation du territoir'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.RIVNET, self.tr('Cours d\'eau'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):

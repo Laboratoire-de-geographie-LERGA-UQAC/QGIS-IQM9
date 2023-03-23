@@ -1,7 +1,7 @@
 """
 Model exported as python.
 Name : Extract And Snap Outlets
-Group : 
+Group :
 With QGIS : 33000
 """
 
@@ -21,7 +21,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Stream Network', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorDestination('snapped_outlets', 'Snapped_outlets', type=QgsProcessing.TypeVectorPoint, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorDestination('snapped_outlets', 'Snapped_outlets', type=QgsProcessing.TypeVectorPoint, createByDefault=True, defaultValue=QgsProcessingUtils.generateTempFilename("snapped_outputs.shp")))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -33,7 +33,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
         # Interpolate point on line
         interpolated_points_output = QgsProcessingUtils.generateTempFilename("interpolatedPoints.gpkg")
         alg_params = {
-            'DISTANCE': QgsProperty.fromExpression('if(length(@geometry) > 100, length(@geometry) - 30, length(@geometry) * 0.9)'),
+            'DISTANCE': QgsProperty.fromExpression('if($length > 100, $length - 30, $length * 0.9)'),
             'INPUT': parameters['stream_network'],
             'OUTPUT': interpolated_points_output
         }
@@ -59,6 +59,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             return {}
 
         # JensonSnapPourPoints
+        snapped_outlets_output = QgsProcessingUtils.generateTempFilename("snapped_outlets.tif")
         alg_params = {
             'pour_pts': outputs['InterpolatePointOnLine']['OUTPUT'],
             'snap_dist': 40,
@@ -67,19 +68,20 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
         }
         outputs['Jensonsnappourpoints'] = processing.run('wbt:JensonSnapPourPoints', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
         results['snapped_outlets'] = outputs['Jensonsnappourpoints']['output']
+        print(parameters['snapped_outlets'])
         return results
 
     def name(self):
         return 'extractandsnapoutlets'
 
     def displayName(self):
-        return 'Extract And Snap Outlets'
+        return 'Extraction And Snap Outlets'
 
     def group(self):
         return 'IQM_utils'
 
     def groupId(self):
-        return 'IQM_utils'
+        return 'iqmutils'
 
     def createInstance(self):
         return ExtractAndSnapOutlets()
