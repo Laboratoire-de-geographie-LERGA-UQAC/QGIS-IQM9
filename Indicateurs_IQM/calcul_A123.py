@@ -238,10 +238,10 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		return 'Calcul A1 A2 A3'
 
 	def group(self):
-		return 'IQM'
+		return 'Indicateurs IQM'
 
 	def groupId(self):
-		return 'IQM'
+		return 'indicateurs_iqm'
 
 	def createInstance(self):
 		return NetworkWatershedFromDem()

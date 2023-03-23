@@ -128,10 +128,10 @@ class IndiceF2(QgsProcessingAlgorithm):
         return self.tr('Indice F2')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('Indicateurs IQM')
 
     def groupId(self):
-        return 'iqm'
+        return 'indicateurs_iqm'
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F2")
@@ -228,7 +228,7 @@ def gen_split_normals(points, parameters, width=0,context=None, feedback=None):
 
     res_id = processing.run("native:mergevectorlayers", {'LAYERS':side_normals,'CRS':None,'OUTPUT':QgsProcessingUtils.generateTempFilename("merged_layer.shp")}, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     logger.info(f"{res_id=}")
-	
+
     return QgsVectorLayer(res_id, 'normals', "ogr" )
 
 def get_mean_unrestricted_distance(normals, river_width, bounding_layer_ids, parameters):

@@ -66,7 +66,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
         return 'extractandsnapoutlets'
 
     def displayName(self):
-        return 'Extraction And Snap Outlets'
+        return 'Extract And Snap Outlets'
 
     def group(self):
         return 'IQM_utils'

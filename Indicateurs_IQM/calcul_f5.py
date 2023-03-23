@@ -54,7 +54,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 
             if feedback.isCanceled():
                 return {}
-    
+
             # gen transects, and analyse intersection with 'Bande riv'
             points_along_line = pointsAlongLines(segment, source, context, feedback)
             normals = gen_split_normals(points_along_line, parameters, context, feedback)
@@ -86,10 +86,10 @@ class IndiceF5(QgsProcessingAlgorithm):
         return self.tr('Indice F5')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('Indicateurs IQM')
 
     def groupId(self):
-        return self.tr('iqm')
+        return self.tr('indicateurs_iqm')
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
@@ -130,7 +130,7 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
             'OUTPUT': QgsProcessingUtils.generateTempFilename("split_normals.shp")
         }
         side_normals.append(processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
-    
+
     alg_params = {'LAYERS':side_normals, 'CRS':None, 'OUTPUT':QgsProcessingUtils.generateTempFilename("normals.shp")}
     res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return QgsVectorLayer(res_id, 'normals', "ogr")

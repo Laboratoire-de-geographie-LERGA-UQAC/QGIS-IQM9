@@ -211,10 +211,10 @@ class IndiceA2(QgsProcessingAlgorithm):
 		return self.tr('Indice A2')
 
 	def group(self):
-		return self.tr('IQM')
+		return self.tr('Indicateurs IQM')
 
 	def groupId(self):
-		return 'iqm'
+		return 'indicateurs_iqm'
 
 	def shortHelpString(self):
 		return self.tr("Clacule l'indice A2")

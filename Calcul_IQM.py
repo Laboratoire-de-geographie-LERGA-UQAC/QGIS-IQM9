@@ -10,15 +10,15 @@ import processing
 class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande_riv', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande riveraine', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('barrages', 'Barrages', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Cours_eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Réseau hydrographique', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'MNT', defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', 'PtRef - Largeur', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('routes', 'Routes', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('structures', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'IQM', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'Output', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the

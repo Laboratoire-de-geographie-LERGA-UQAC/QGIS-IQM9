@@ -81,7 +81,7 @@ class Compute_d8(QgsProcessingAlgorithm):
         return 'computed8'
 
     def displayName(self):
-        return 'Calcule pointeur D8'
+        return 'Calcul pointeur D8'
 
     def group(self):
         return 'IQM_utils'

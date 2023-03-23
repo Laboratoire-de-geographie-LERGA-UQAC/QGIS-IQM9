@@ -114,7 +114,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
             if feedback.isCanceled():
                 return {}
-    
+
             #gen points and normals along geometry
             points_along_line = pointsAlongGeometry(segment)
             div_distance = segment.geometry().length() / self.DIVS
@@ -147,10 +147,10 @@ class IndiceF4(QgsProcessingAlgorithm):
         return self.tr('Indice F4')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('Indicateurs IQM')
 
     def groupId(self):
-        return 'iqm'
+        return 'indicateurs_iqm'
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F4")

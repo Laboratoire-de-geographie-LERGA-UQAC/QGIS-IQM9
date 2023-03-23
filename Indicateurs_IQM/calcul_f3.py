@@ -72,7 +72,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             if feedback.isCanceled():
                 return {}
-            
+
             # Split segment into 100 sided buffers
             buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
             intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
@@ -101,10 +101,10 @@ class IndiceF3(QgsProcessingAlgorithm):
         return self.tr('Indice F3')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('Indicateurs IQM')
 
     def groupId(self):
-        return 'iqm'
+        return 'indicateurs_iqm'
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F3")
@@ -146,7 +146,7 @@ def split_buffer(feature, source, parameters, context, feedback=None):
         'OUTPUT': QgsProcessingUtils.generateTempFilename("side_buffers.shp")
         }
         side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
-    
+
     alg_params = {'LAYERS':side_buffers,'CRS':None,'OUTPUT': QgsProcessingUtils.generateTempFilename("Buffers.shp")}
     res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return context.takeResultLayer(res_id)

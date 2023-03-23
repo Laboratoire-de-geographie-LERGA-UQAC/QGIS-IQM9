@@ -53,7 +53,7 @@ class Uea_ptref_join(QgsProcessingAlgorithm):
         return 'UEA_PtRef_join'
 
     def displayName(self):
-        return 'UEA_PtRef_join'
+        return 'UEA PtRef join'
 
     def group(self):
         return 'IQM_utils'
