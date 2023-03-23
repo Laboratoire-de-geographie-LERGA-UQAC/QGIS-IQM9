@@ -93,7 +93,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 			'stream_network': parameters['stream_network'],
 			'snapped_outlets': QgsProcessingUtils.generateTempFilename("outlets.shp"),
 		}
-		outputs['SnappedOutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['snapped_outlets']
+		outputs['SnappedOutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 		feedback.setCurrentStep(2)
 		if feedback.isCanceled():
 			return {}
@@ -239,16 +239,16 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		return {self.OUTPUT : dest_id}
 
 	def name(self):
-		return 'watershedrework'
+		return 'calculA123'
 
 	def displayName(self):
-		return 'Watershed rework'
+		return 'Calcul A1 A2 A3'
 
 	def group(self):
-		return 'testing'
+		return 'IQM'
 
 	def groupId(self):
-		return 'testing'
+		return 'IQM'
 
 	def createInstance(self):
 		return NetworkWatershedFromDem()
