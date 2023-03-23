@@ -21,7 +21,7 @@ Les scripts sont disponibles sur le [dépôt Github](https://github.com/Mehourka
 
 ![Git_clone_zip](https://user-images.githubusercontent.com/84189822/227321703-39829cec-abfa-41dc-9d6c-d81cd4d0d401.png)
 
-Une fois téléchargés, l'ajout  à QGIS se fait comme suit :
+Une fois téléchargés, l'ajout des scripts à QGIS se fait comme suit :
 - Ouvrez QGIS et cliquez sur l'option "Préférences" dans la barre de menus.
 - Sélectionnez "Options" dans le menu déroulant.
 
@@ -40,9 +40,9 @@ Une fois ajouté dans le répertoire des scripts, l'algorithme Processing de l'o
 
 
 ## Utilisation de l’outil
-Un ensemble de 15 scripts ont été créés suite au développement, et exploitent l'interface de QGIS pour s’executer, effectuer l'analyse des données et afficher les résultats obtenus.
+Un ensemble de 15 scripts a été créé suite au développement des différents indicateurs, et les scripts exploitent l'interface de QGIS pour s’exécuter, effectuer l'analyse des données et afficher les résultats obtenus.
 
-L’outil est structurée de la manière suivante :
+L’outil est structuré de la manière suivante :
 - Le module **indicateurs_IQM** regroupe l'ensemble des scripts de calcul pour chaque indicateur de manière individuelle.
 - Le module **IQM_utils** regroupe quant à lui les scripts et fonctions d'aide au prétraitement des données.
 - L'algorithme principal **Calcul_IQM** a été conçu pour combiner les prétraitements et le calcul de tous les indicateurs.
@@ -53,7 +53,7 @@ L’outil est structurée de la manière suivante :
 ## Préparation des données
 Avant d'utiliser l'outil, il est important de s'assurer que toutes les couches de données sont projetées de la même manière. Il est recommandé d'utiliser le système de référence de coordonnées (CRS) Lambert conique conforme du Québec pour assurer la cohérence des données spatiales.
 Il est également conseillé de minimiser l'emprise des données pour le bassin versant étudié, même si ce n'est pas obligatoire. Cela permettra d'alléger les calculs et d'améliorer les performances de l'outil. Vous pouvez réduire l'emprise en sélectionnant uniquement les données pertinentes pour votre étude.
-Assurez-vous que toutes les données nécessaires à l'analyse sont présentes et correctement formatées. Les formats de fichiers testé par l'outil incluent les formats vectoriels tels que les fichiers Shapefile (.shp), les fichiers geopackge (.gpkg), et les formats raster tels que GeoTIFF (.tif).
+Assurez-vous que toutes les données nécessaires à l'analyse sont présentes et correctement formatées. Les formats de fichiers testés par l'outil incluent les formats vectoriels tels que les fichiers Shapefile (.shp), les fichiers geopackge (.gpkg), et les formats raster tels que GeoTIFF (.tif).
 
 
 ### Données matricielles:
@@ -67,24 +67,24 @@ Source : https://www.donneesquebec.ca/recherche/dataset/produits-derives-de-base
 #### Utilisation du territoire
 Pour assurer une utilisation adéquate de la couche "Utilisation du territoire", il est important de s'assurer que les données proviennent du MELCCFP, car les tables de reclassification de l'outil sont basées sur ces données. De plus, pour optimiser les calculs, il est recommandé de procéder à la reprojection et au découpage de cette couche.
 
-source : https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territoire
+Source : https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territoire
 
 
 ### Données vectorielles:
 #### CRHQ
-**Le réseau hydrographique** utilisé provient du cadre de référence hydrologique (CRHQ). Dans la géodatabase du CRHQ, contient des données vectorielles linéaires des cours d'eau, qui sont divisés en unités écologiques aquatiques (UEA) et des **points de référence** contenant des variables descriptives.
+**Le réseau hydrographique** utilisé provient du cadre de référence hydrologique (CRHQ). Dans la géodatabase du CRHQ, il contient des données vectorielles linéaires des cours d'eau, qui sont divisés en unités écologiques aquatiques (UEA) et des **points de référence** contenant des variables descriptives.
 L’outil nécessite:
 - la couche vectorielle des UEA **“UEA_L_N2”**, celle-ci doit être recadrée à l'emprise de la zone d'étude.
 - La couche vectorielle **“PtRef”** et la table attributaire **“PtRef_mod_lotique”** correspondantes.
 
-L'utilisateur ***doit*** lier l'attribut "Largeur_mod" de la table “PtRef_mod_lotique” aux points de réferences, pour cela, le script "Join PtRef - Mod" du module "IQM_utils" peut être utilisé.
+L'utilisateur ***doit*** lier l'attribut "Largeur_mod" de la table “PtRef_mod_lotique” aux points de références, pour cela, le script "Join PtRef - Mod" du module "IQM_utils" peut être utilisé.
 
-source : https://www.donneesquebec.ca/recherche/dataset/crhq
+Source : https://www.donneesquebec.ca/recherche/dataset/crhq
 
 #### Barrage
 Le jeu de données vectorielles ponctuelles des barrages préconisé est celui fourni par le Centre d'expertise hydrique du Québec (CEHQ). Ce jeu de données contient des informations sur les barrages au Québec, y compris leur emplacement et leur type. Les données ont été obtenues à partir du portail de données d’infrastructures ouvertes du gouvernement du Québec (IGO).
 
-source : https://www.cehq.gouv.qc.ca/barrages/default.asp
+Source : https://www.cehq.gouv.qc.ca/barrages/default.asp
 
 
 #### Structures
@@ -92,7 +92,7 @@ Les données vectorielles ponctuelles des structures de transport du Québec pro
 
 Source : https://www.donneesquebec.ca/recherche/dataset/structure
 
-#### Réseau Routier
+#### Réseau routier
 Le réseau routier utilisé provient des données vectorielles linéaires représentant les rues, les avenues, les autoroutes et les chemins de fer à partir de la plateforme OpenStreetMap.
 Le téléchargement est possible depuis le [site officiel](https://welcome.openstreetmap.org/working-with-osm-data/downloading-and-using/) ou directement via [l'extension QGIS](https://plugins.qgis.org/plugins/QuickOSM/).
 
