@@ -1,3 +1,4 @@
+from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (
 	QgsProcessing,

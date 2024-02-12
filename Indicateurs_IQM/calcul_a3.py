@@ -2,23 +2,23 @@
 from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
-	QgsProcessing,
-	QgsField,
-	QgsFeatureSink,
-	QgsVectorLayer,
-	QgsFeatureRequest,
-	QgsProcessingAlgorithm,
-	QgsProcessingMultiStepFeedback,
-	QgsProcessingParameterRasterLayer,
-	QgsProcessingParameterNumber,
-	QgsProcessingParameterVectorLayer,
-	QgsProcessingParameterFeatureSink,
-	QgsProcessingParameterRasterDestination,
-	QgsCoordinateReferenceSystem,
-	QgsProcessingFeatureSourceDefinition,
-	QgsExpression,
-	QgsExpressionContext,
-	QgsExpressionContextUtils)
+    QgsProcessing,
+    QgsField,
+    QgsFeatureSink,
+    QgsVectorLayer,
+    QgsFeatureRequest,
+    QgsProcessingAlgorithm,
+    QgsProcessingMultiStepFeedback,
+    QgsProcessingParameterRasterLayer,
+    QgsProcessingParameterNumber,
+    QgsProcessingParameterVectorLayer,
+    QgsProcessingParameterFeatureSink,
+    QgsProcessingParameterRasterDestination,
+    QgsCoordinateReferenceSystem,
+    QgsProcessingFeatureSourceDefinition,
+    QgsExpression,
+    QgsExpressionContext,
+    QgsExpressionContextUtils)
 import processing
 
 
@@ -275,14 +275,13 @@ class IndiceA3(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
+            # Clear temporary files
+            for tempfile in tmp.values():
+                tempfile.close()
             print(f'{fid}/{feature_count}')
             print(f"{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
 
         feedback.setCurrentStep(3)
-
-        # Clear temporary files
-        for tempfile in tmp.values():
-            tempfile.close()
 
         return {self.OUTPUT: dest_id}
 

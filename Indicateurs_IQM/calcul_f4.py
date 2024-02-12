@@ -130,8 +130,6 @@ class IndiceF4(QgsProcessingAlgorithm):
             )
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-
-
         return results
 
     def tr(self, string):

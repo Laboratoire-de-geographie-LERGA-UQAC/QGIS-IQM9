@@ -1,4 +1,4 @@
-
+from tempfile import NamedTemporaryFile as Ntf
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
@@ -207,12 +207,13 @@ class IndiceA1(QgsProcessingAlgorithm):
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
+			# Clear temporary files
+			for tempfile in tmp.values():
+				tempfile.close()
+				
 			print(f'{fid}/{feature_count}')
 			print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
 
-		# Clear temporary files
-		for tempfile in tmp.values():
-			tempfile.close()
 
 		return {self.OUTPUT : dest_id}
 

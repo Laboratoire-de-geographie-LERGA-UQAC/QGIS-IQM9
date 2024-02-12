@@ -1,4 +1,4 @@
-
+from tempfile import NamedTemporaryFile as Ntf
 import processing
 from tempfile import NamedTemporaryFile as Ntf
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
@@ -187,14 +187,15 @@ class IndiceA2(QgsProcessingAlgorithm):
 				feature.attributes() + [indiceA2]
 			)
 
+			# Clear temporary files
+			for tempfile in tmp.values():
+				tempfile.close()
+				
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
 			print(f'{fid}/{feature_count}')
 
-		# Clear temporary files
-		for tempfile in tmp.values():
-			tempfile.close()
 
 		return {self.OUTPUT: dest_id}
 
