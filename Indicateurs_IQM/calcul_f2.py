@@ -1,6 +1,8 @@
 import numpy as np
 import processing
+from tempfile import NamedTemporaryFile
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
+import tempfile
 from qgis.core import (
     QgsProcessing,
     QgsProject,
@@ -119,6 +121,10 @@ class IndiceF2(QgsProcessingAlgorithm):
 
         for segment in source.getFeatures():
 
+            tmp = {}
+            tmp["points"] = NamedTemporaryFile(suffix=".shp")
+            tmp["normals"] = NamedTemporaryFile(suffix=".shp")
+
             if feedback.isCanceled():
                 break
 
@@ -129,7 +135,7 @@ class IndiceF2(QgsProcessingAlgorithm):
                 source,
                 context=context,
                 feedback=feedback,
-                output=QgsProcessingUtils.generateTempFilename("points.shp"),
+                output=tmp["points"].name,
             )
             segment_mean_width = get_segment_mean_width(
                 segment, source, parameters, context=context, feedback=feedback
@@ -165,8 +171,8 @@ class IndiceF2(QgsProcessingAlgorithm):
             # logging.info(f"{segment.id()} / {feature_count}\n\n")
             # logging.info(f"segment{segment[fid_idx]} done !")
 
-        QgsProject.instance().removeMapLayer(vectorised_landuse.id())
-        
+            # delete temp folder
+
         return {self.OUTPUT: dest_id}
 
     def tr(self, string):
@@ -328,6 +334,10 @@ def get_segment_mean_width(
 
 
 def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
+
+    tmp = {}
+    tmp["side_buffer"] = NamedTemporaryFile(suffix=".shp")
+    tmp["merged_layer"] = NamedTemporaryFile(suffix=".shp")
     # Geometry by expression
     side_normals = []
     width = max(10, width)
@@ -339,7 +349,7 @@ def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
             "OUTPUT_GEOMETRY": 1,  # Line
             "WITH_M": False,
             "WITH_Z": False,
-            "OUTPUT": QgsProcessingUtils.generateTempFilename("side_buffer.shp"),
+            "OUTPUT": tmp["side_buffer"].name,
         }
         side_normals.append(
             processing.run(
@@ -355,13 +365,13 @@ def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
         {
             "LAYERS": side_normals,
             "CRS": None,
-            "OUTPUT": QgsProcessingUtils.generateTempFilename("merged_layer.shp"),
+            "OUTPUT": tmp["merged_layer"].name,
         },
         feedback=feedback,
         is_child_algorithm=True,
     )["OUTPUT"]
     # logger.info(f"{res_id=}")
-
+    tmp["side_buffer"].close()
     return QgsVectorLayer(res_id, "normals", "ogr")
 
 
@@ -398,7 +408,8 @@ def get_mean_unrestricted_distance(
         # logging.info(f"{obstructed_distances=}\n{diffs_array=}")
     unobstructed_lengths = normals_length - diffs_array - river_width / 2
     # logging.info(f"{unobstructed_lengths=}, mean= {np.mean(unobstructed_lengths)}")
-    return np.mean(unobstructed_lengths)
+    mean_length = np.mean(unobstructed_lengths)
+    return mean_length
 
 
 def computeF2(mean_length):

@@ -122,7 +122,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'output': tmp['watershed'].name
 			}
 			outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-			print(outputs['Watershed']['output'])
+			# print(outputs['Watershed']['output'])
 
 			# Polygonize (raster to vector)
 			alg_params = {
@@ -210,9 +210,9 @@ class IndiceA1(QgsProcessingAlgorithm):
 			# Clear temporary files
 			for tempfile in tmp.values():
 				tempfile.close()
-				
-			print(f'{fid}/{feature_count}')
-			print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
+
+			# print(f'{fid}/{feature_count}')
+			# print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
 
 
 		return {self.OUTPUT : dest_id}

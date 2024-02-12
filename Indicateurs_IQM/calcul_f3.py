@@ -23,18 +23,55 @@ from qgis.core import (
     QgsProperty,
 )
 
+from tempfile import NamedTemporaryFile
+
 
 class IndiceF3(QgsProcessingAlgorithm):
-    OUTPUT = 'OUTPUT'
-    ID_FIELD = 'fid'
+    OUTPUT = "OUTPUT"
+    ID_FIELD = "fid"
     DIVISIONS = 10
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', optional=True, layerType=QgsProcessing.TypeVector, defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                "ptref_widths",
+                "PtRef_widths",
+                types=[QgsProcessing.TypeVectorPoint],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterMultipleLayers(
+                "antropic_layers",
+                "Antropic layers",
+                optional=True,
+                layerType=QgsProcessing.TypeVector,
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                "rivnet",
+                "RivNet",
+                types=[QgsProcessing.TypeVectorLine],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterRasterLayer(
+                "landuse", "Utilisation du territoir", defaultValue=None
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterFeatureSink(
+                self.OUTPUT,
+                self.OUTPUT,
+                type=QgsProcessing.TypeVectorAnyGeometry,
+                createByDefault=True,
+                supportsAppend=True,
+                defaultValue=None,
+            )
+        )
 
     def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -42,7 +79,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 
         # Define source stream net
-        source = self.parameterAsSource(parameters, 'rivnet', context)
+        source = self.parameterAsSource(parameters, "rivnet", context)
 
         # Define Sink
         sink_fields = source.fields()
@@ -53,18 +90,24 @@ class IndiceF3(QgsProcessingAlgorithm):
             context,
             sink_fields,
             source.wkbType(),
-            source.sourceCrs()
+            source.sourceCrs(),
         )
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
         assert fid_idx >= 0, "field_index not found"
-        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
+        anthropic_layers = [
+            layer.id()
+            for layer in self.parameterAsLayerList(
+                parameters, "antropic_layers", context
+            )
+        ]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
+        vectorised_landuse = polygonize_landuse(
+            parameters, context=context, feedback=feedback
+        )
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
-
 
         # feature count for feedback
         feature_count = source.featureCount()
@@ -74,44 +117,47 @@ class IndiceF3(QgsProcessingAlgorithm):
                 return {}
 
             # Split segment into 100 sided buffers
-            buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
-            intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
+            buffer_layer = split_buffer(
+                segment, source, parameters, context, feedback=feedback
+            )
+            intersect_array = get_intersect_arr(
+                buffer_layer, anthropic_layers, parameters, context
+            )
 
             # Compute the IQM Score
             indiceF3 = computeF3(intersect_array)
 
-            #Write to layer
+            # Write to layer
             segment.setAttributes(segment.attributes() + [indiceF3])
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
 
-        return {self.OUTPUT : dest_id}
+        return {self.OUTPUT: dest_id}
 
     def tr(self, string):
-        return QCoreApplication.translate('Processing', string)
+        return QCoreApplication.translate("Processing", string)
 
     def createInstance(self):
         return IndiceF3()
 
     def name(self):
-        return 'indicef3'
+        return "indicef3"
 
     def displayName(self):
-        return self.tr('Indice F3')
+        return self.tr("Indice F3")
 
     def group(self):
-        return self.tr('Indicateurs IQM')
+        return self.tr("Indicateurs IQM")
 
     def groupId(self):
-        return 'indicateurs_iqm'
+        return "indicateurs_iqm"
 
     def shortHelpString(self):
         return self.tr("Clacule l'indice F3")
 
 
-
-def evaluate_expression(expression_str, vlayer, feature=None ):
+def evaluate_expression(expression_str, vlayer, feature=None):
     expression = QgsExpression(expression_str)
     context = QgsExpressionContext()
     if feature:
@@ -121,34 +167,57 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
     res = expression.evaluate(context)
     return res
 
+
 def split_buffer(feature, source, parameters, context, feedback=None):
     DIVISIONS = 50
     BUFF_RATIO = 1
     BUFF_FLAT = 15
 
+    tmp = {}
+    tmp["segment"] = NamedTemporaryFile(suffix=".shp")
+    tmp["side_buffers"] = NamedTemporaryFile(suffix=".shp")
+    tmp["buffers"] = NamedTemporaryFile(suffix=".shp")
+
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
-    'INPUT':segment,
-    'LENGTH':feature.geometry().length() / DIVISIONS,
-    'OUTPUT': QgsProcessingUtils.generateTempFilename("split_line.shp"),
+        "INPUT": segment,
+        "LENGTH": feature.geometry().length() / DIVISIONS,
+        "OUTPUT": tmp["segment"].name,
     }
-    split = processing.run('native:splitlinesbylength', alg_param, context=context, is_child_algorithm=True)['OUTPUT']
+    split = processing.run(
+        "native:splitlinesbylength", alg_param, context=context, is_child_algorithm=True
+    )["OUTPUT"]
 
     side_buffers = []
     for direction in [1, -1]:
         # Buffering subsegments
         alg_param = {
-        'INPUT':split,
-        'OUTPUT_GEOMETRY':0,'WITH_Z':False,
-        'WITH_M':False,
-        'EXPRESSION':f"single_sided_buffer( @geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
-        'OUTPUT': QgsProcessingUtils.generateTempFilename("side_buffers.shp")
+            "INPUT": split,
+            "OUTPUT_GEOMETRY": 0,
+            "WITH_Z": False,
+            "WITH_M": False,
+            "EXPRESSION": f"single_sided_buffer( @geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
+            "OUTPUT": tmp["side_buffers"].name,
         }
-        side_buffers.append(processing.run("native:geometrybyexpression", alg_param, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
+        side_buffers.append(
+            processing.run(
+                "native:geometrybyexpression",
+                alg_param,
+                context=context,
+                feedback=feedback,
+                is_child_algorithm=True,
+            )["OUTPUT"]
+        )
 
-    alg_params = {'LAYERS':side_buffers,'CRS':None,'OUTPUT': QgsProcessingUtils.generateTempFilename("Buffers.shp")}
-    res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    alg_params = {"LAYERS": side_buffers, "CRS": None, "OUTPUT": tmp["buffers"].name}
+    res_id = processing.run(
+        "native:mergevectorlayers",
+        alg_params,
+        context=context,
+        feedback=feedback,
+        is_child_algorithm=True,
+    )["OUTPUT"]
     return context.takeResultLayer(res_id)
 
 
@@ -163,49 +232,106 @@ def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
         obstructed_arr += eval
     return obstructed_arr
 
+
 def polygonize_landuse(parameters, context, feedback):
-    alg_params = {'INPUT':parameters['rivnet'],'DISTANCE':1000,'SEGMENTS':5,'END_CAP_STYLE':0,'JOIN_STYLE':0,'MITER_LIMIT':2,'DISSOLVE':True,'OUTPUT':QgsProcessingUtils.generateTempFilename("Buffer.shp")}
-    buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    tmp = {}
+    tmp["buffer"] = NamedTemporaryFile(suffix=".shp")
+    tmp["clip"] = NamedTemporaryFile(suffix=".tif")
+    tmp["reclass"] = NamedTemporaryFile(suffix=".tif")
+    tmp["vector"] = NamedTemporaryFile(suffix=".shp")
 
-    alg_params = {'INPUT':parameters['landuse'],'MASK':buffer,'SOURCE_CRS':None,'TARGET_CRS':None,'TARGET_EXTENT':None,'NODATA':None,'ALPHA_BAND':False,'CROP_TO_CUTLINE':True,'KEEP_RESOLUTION':False,'SET_RESOLUTION':False,'X_RESOLUTION':None,'Y_RESOLUTION':None,'MULTITHREADING':False,'OPTIONS':'','DATA_TYPE':0,'EXTRA':'','OUTPUT':QgsProcessingUtils.generateTempFilename("clip.tif")}
-    clip = processing.run("gdal:cliprasterbymasklayer", alg_params,context=context, feedback=feedback)['OUTPUT']
+    alg_params = {
+        "INPUT": parameters["rivnet"],
+        "DISTANCE": 1000,
+        "SEGMENTS": 5,
+        "END_CAP_STYLE": 0,
+        "JOIN_STYLE": 0,
+        "MITER_LIMIT": 2,
+        "DISSOLVE": True,
+        "OUTPUT": tmp["buffer"].name,
+    }
+    buffer = processing.run(
+        "native:buffer",
+        alg_params,
+        context=context,
+        feedback=feedback,
+        is_child_algorithm=True,
+    )["OUTPUT"]
 
+    alg_params = {
+        "INPUT": parameters["landuse"],
+        "MASK": buffer,
+        "SOURCE_CRS": None,
+        "TARGET_CRS": None,
+        "TARGET_EXTENT": None,
+        "NODATA": None,
+        "ALPHA_BAND": False,
+        "CROP_TO_CUTLINE": True,
+        "KEEP_RESOLUTION": False,
+        "SET_RESOLUTION": False,
+        "X_RESOLUTION": None,
+        "Y_RESOLUTION": None,
+        "MULTITHREADING": False,
+        "OPTIONS": "",
+        "DATA_TYPE": 0,
+        "EXTRA": "",
+        "OUTPUT": tmp["clip"].name,
+    }
+    clip = processing.run(
+        "gdal:cliprasterbymasklayer", alg_params, context=context, feedback=feedback
+    )["OUTPUT"]
 
-    CLASSES = ['300', '360', '1']
+    CLASSES = ["300", "360", "1"]
 
     # Reclassify land use
     alg_params = {
-        'DATA_TYPE': 0,  # Byte
-        'INPUT_RASTER': clip,
-        'NODATA_FOR_MISSING': True,
-        'NO_DATA': 0,
-        'RANGE_BOUNDARIES': 2,  # min <= value <= max
-        'RASTER_BAND': 1,
-        'TABLE': CLASSES,
-        'OUTPUT': QgsProcessingUtils.generateTempFilename("reclass_and_use.tif")
+        "DATA_TYPE": 0,  # Byte
+        "INPUT_RASTER": clip,
+        "NODATA_FOR_MISSING": True,
+        "NO_DATA": 0,
+        "RANGE_BOUNDARIES": 2,  # min <= value <= max
+        "RASTER_BAND": 1,
+        "TABLE": CLASSES,
+        "OUTPUT": tmp["reclass"].name,
     }
-    reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    reclass = processing.run(
+        "native:reclassifybytable",
+        alg_params,
+        context=context,
+        feedback=feedback,
+        is_child_algorithm=True,
+    )["OUTPUT"]
 
     alg_params = {
-        'BAND': 1,
-        'EIGHT_CONNECTEDNESS': False,
-        'EXTRA': '',
-        'FIELD': 'DN',
-        'INPUT': reclass,
-        'OUTPUT': QgsProcessingUtils.generateTempFilename("Vector_landuse.shp")
+        "BAND": 1,
+        "EIGHT_CONNECTEDNESS": False,
+        "EXTRA": "",
+        "FIELD": "DN",
+        "INPUT": reclass,
+        "OUTPUT": tmp["vector"].name,
     }
-    poly_path = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    poly_path = processing.run(
+        "gdal:polygonize",
+        alg_params,
+        context=context,
+        feedback=feedback,
+        is_child_algorithm=True,
+    )["OUTPUT"]
+
+    for t in ["buffer", "clip", "reclass"]:
+        tmp[t].close()
+
     return QgsVectorLayer(poly_path, "landuse", "ogr")
 
 
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
-    ratio = np.mean(1 - intersect_arr) # Sum number of unrestricted segments
+    ratio = np.mean(1 - intersect_arr)  # Sum number of unrestricted segments
     # print(f"Unrestricted ratio : {ratio}")
-    if (ratio >= 0.9):
+    if ratio >= 0.9:
         return 0
-    if (ratio >= 0.66):
+    if ratio >= 0.66:
         return 2
-    if (ratio >= 0.33):
+    if ratio >= 0.33:
         return 3
     return 5

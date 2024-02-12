@@ -190,11 +190,11 @@ class IndiceA2(QgsProcessingAlgorithm):
 			# Clear temporary files
 			for tempfile in tmp.values():
 				tempfile.close()
-				
+
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-			print(f'{fid}/{feature_count}')
+			# print(f'{fid}/{feature_count}')
 
 
 		return {self.OUTPUT: dest_id}

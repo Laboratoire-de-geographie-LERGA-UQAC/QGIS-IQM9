@@ -57,6 +57,7 @@ class IndiceF1(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
+        print("Calcule_F1")
         if sink is None:
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
 
@@ -129,7 +130,7 @@ def count_structures(buffer, parameters):
     """
     feature = next(buffer.getFeatures())
     count = evaluate_expression(expr_str, buffer, feature=feature)
-    print(count)
+    # print(count)
     return count
 
 def computeF1(feature, struct_count):
