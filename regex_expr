@@ -1,0 +1,2 @@
+(.+)QgsProcessingUtils\.generateTempFilename\("([^"]*)"\)
+$1 IndiceF2.tempDict["$2"]
