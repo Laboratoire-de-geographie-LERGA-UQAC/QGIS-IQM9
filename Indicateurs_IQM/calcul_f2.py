@@ -19,6 +19,7 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsProcessingAlgorithm,
     QgsProcessingMultiStepFeedback,
+    QgsProcessingFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSink,
@@ -90,7 +91,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
         # overall progress through the model
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
+        feedback = QgsProcessingMultiStepFeedback(1, model_feedback)
 
         # Define source stream net
         source = self.parameterAsVectorLayer(parameters, "rivnet", context)
@@ -362,9 +363,11 @@ def get_segment_mean_width(
                 """
     )
 
-    return evaluate_expression(
+    evaluate_expression(
         expr, source, feature=feature, context=parameters["expContext"]
     )
+
+    return resg
 
 
 def gen_split_normals(points, parameters, width=0, context=None, feedback=None):

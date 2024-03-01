@@ -13,6 +13,7 @@ from qgis.core import (
     QgsExpressionContextUtils,
     QgsProcessing,
     QgsProcessingAlgorithm,
+    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterRasterLayer,
     QgsProcessingParameterVectorLayer,
 )
@@ -100,6 +101,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         # overall progress through the model
         outputs = {}
 
+        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
         # Source definition
         source = self.parameterAsVectorLayer(parameters, self.STREAM_NET, context)
         # Sink (output) définition
@@ -148,6 +150,8 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         total = 100.0 / source.featureCount() if source.featureCount() else 0
         # Itteration over all river networ features
         for i, feature in enumerate(source.getFeatures()):
+            if feedback.isCanceled():
+                return {}
 
             # Get feature Id
             fid = feature[self.ID_FIELD]

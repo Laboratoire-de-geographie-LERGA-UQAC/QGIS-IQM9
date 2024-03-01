@@ -92,7 +92,6 @@ class IndiceF5(QgsProcessingAlgorithm):
         total = 100.0 / source.featureCount() if source.featureCount() else 0
         # Itteration over all river networ features
         for i, segment in enumerate(source.getFeatures()):
-        for segment in source.getFeatures():
 
             if feedback.isCanceled():
                 return {}
