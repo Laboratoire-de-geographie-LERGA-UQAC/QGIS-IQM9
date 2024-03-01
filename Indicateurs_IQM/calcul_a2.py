@@ -256,7 +256,6 @@ class IndiceA2(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-            print(f"{fid}/{feature_count}")
             del mainWatershedPoly, subWatershedPoly
 
         return {self.OUTPUT: dest_id}

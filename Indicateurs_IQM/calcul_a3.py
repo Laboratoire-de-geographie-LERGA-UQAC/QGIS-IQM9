@@ -389,8 +389,6 @@ class IndiceA3(QgsProcessingAlgorithm):
             # Clear temporary files
             for tempfile in tmp.values():
                 tempfile.close()
-            print(f"{fid}/{feature_count}")
-            print(f"{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
             del table
 
         feedback.setCurrentStep(3)

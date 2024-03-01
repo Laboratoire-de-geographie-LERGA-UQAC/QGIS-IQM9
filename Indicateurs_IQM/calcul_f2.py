@@ -170,7 +170,6 @@ class IndiceF2(QgsProcessingAlgorithm):
                 QgsExpressionContextUtils.globalProjectLayerScopes(normals)
             )
 
-            print(parameters["expContext"].scopeCount())
             mean_unrestricted_distance = get_mean_unrestricted_distance(
                 normals, segment_mean_width, anthropic_layers, parameters
             )
@@ -319,7 +318,6 @@ def evaluate_expression(expression_str, vlayer, feature=None, context=None):
         context = QgsExpressionContext()
         scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
         context.appendScopes(scopes)
-    print("In Eval Expr: context scope count = ", context.scopeCount())
 
     if feature:
         context.setFeature(feature)

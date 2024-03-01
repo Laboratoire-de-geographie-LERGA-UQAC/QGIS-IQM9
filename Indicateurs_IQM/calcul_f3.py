@@ -330,7 +330,6 @@ def polygonize_landuse(parameters, context, feedback):
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
     ratio = np.mean(1 - intersect_arr)  # Sum number of unrestricted segments
-    # print(f"Unrestricted ratio : {ratio}")
     if ratio >= 0.9:
         return 0
     if ratio >= 0.66:

@@ -110,11 +110,9 @@ class IndiceF4(QgsProcessingAlgorithm):
                 return 1
             difs_percent = (width_array[1:] - width_array[:-1]) / width_array[1:]
             difs_specific = difs_percent * 1000 / div_distance
-            # print(f"{difs_specific=}")
             unnatural_widths = np.where(
                 (difs_specific < self.LTHRESH) | (difs_specific > self.UTHRESH)
             )[0].size
-            # print(f"{unnatural_widths=}")
             return 1 - (unnatural_widths / difs_percent.size)
 
         def computeF4(width_array, div_distance):
