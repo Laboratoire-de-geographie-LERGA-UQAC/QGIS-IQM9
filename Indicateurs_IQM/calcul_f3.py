@@ -23,13 +23,24 @@ from qgis.core import (
     QgsProperty,
 )
 
-from tempfile import NamedTemporaryFile
-
 
 class IndiceF3(QgsProcessingAlgorithm):
     OUTPUT = "OUTPUT"
     ID_FIELD = "fid"
     DIVISIONS = 10
+
+    tempDict = {
+        name: QgsProcessingUtils.generateTempFilename(name)
+        for name in [
+            "split_line.shp",
+            "side_buffers.shp",
+            "Buffers.shp",
+            "Buffer.shp",
+            "clip.tif",
+            "reclass_and_use.tif",
+            "Vector_landuse.shp",
+        ]
+    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(
@@ -110,8 +121,9 @@ class IndiceF3(QgsProcessingAlgorithm):
         anthropic_layers.append(vectorised_landuse.id())
 
         # feature count for feedback
-        feature_count = source.featureCount()
-        for segment in source.getFeatures():
+        total = 100.0 / source.featureCount() if source.featureCount() else 0
+        # Itteration over all river networ features
+        for i, segment in enumerate(source.getFeatures()):
 
             if feedback.isCanceled():
                 return {}
@@ -132,6 +144,8 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            feedback.setProgress(int(i * total))
 
         return {self.OUTPUT: dest_id}
 
@@ -173,17 +187,12 @@ def split_buffer(feature, source, parameters, context, feedback=None):
     BUFF_RATIO = 1
     BUFF_FLAT = 15
 
-    tmp = {}
-    tmp["segment"] = NamedTemporaryFile(suffix=".shp")
-    tmp["side_buffers"] = NamedTemporaryFile(suffix=".shp")
-    tmp["buffers"] = NamedTemporaryFile(suffix=".shp")
-
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
         "INPUT": segment,
         "LENGTH": feature.geometry().length() / DIVISIONS,
-        "OUTPUT": tmp["segment"].name,
+        "OUTPUT": IndiceF3.tempDict["split_line.shp"],
     }
     split = processing.run(
         "native:splitlinesbylength", alg_param, context=context, is_child_algorithm=True
@@ -198,7 +207,7 @@ def split_buffer(feature, source, parameters, context, feedback=None):
             "WITH_Z": False,
             "WITH_M": False,
             "EXPRESSION": f"single_sided_buffer( @geometry, {direction} * ({BUFF_FLAT} + {0.5 + BUFF_RATIO} * overlay_nearest('{parameters['ptref_widths']}', Largeur_Mod)[0]))",
-            "OUTPUT": tmp["side_buffers"].name,
+            "OUTPUT": IndiceF3.tempDict["side_buffers.shp"],
         }
         side_buffers.append(
             processing.run(
@@ -210,7 +219,11 @@ def split_buffer(feature, source, parameters, context, feedback=None):
             )["OUTPUT"]
         )
 
-    alg_params = {"LAYERS": side_buffers, "CRS": None, "OUTPUT": tmp["buffers"].name}
+    alg_params = {
+        "LAYERS": side_buffers,
+        "CRS": None,
+        "OUTPUT": IndiceF3.tempDict["Buffers.shp"],
+    }
     res_id = processing.run(
         "native:mergevectorlayers",
         alg_params,
@@ -234,12 +247,6 @@ def get_intersect_arr(vlayer, struct_lay_ids, parameters, context):
 
 
 def polygonize_landuse(parameters, context, feedback):
-    tmp = {}
-    tmp["buffer"] = NamedTemporaryFile(suffix=".shp")
-    tmp["clip"] = NamedTemporaryFile(suffix=".tif")
-    tmp["reclass"] = NamedTemporaryFile(suffix=".tif")
-    tmp["vector"] = NamedTemporaryFile(suffix=".shp")
-
     alg_params = {
         "INPUT": parameters["rivnet"],
         "DISTANCE": 1000,
@@ -248,7 +255,7 @@ def polygonize_landuse(parameters, context, feedback):
         "JOIN_STYLE": 0,
         "MITER_LIMIT": 2,
         "DISSOLVE": True,
-        "OUTPUT": tmp["buffer"].name,
+        "OUTPUT": IndiceF3.tempDict["Buffer.shp"],
     }
     buffer = processing.run(
         "native:buffer",
@@ -275,7 +282,7 @@ def polygonize_landuse(parameters, context, feedback):
         "OPTIONS": "",
         "DATA_TYPE": 0,
         "EXTRA": "",
-        "OUTPUT": tmp["clip"].name,
+        "OUTPUT": IndiceF3.tempDict["clip.tif"],
     }
     clip = processing.run(
         "gdal:cliprasterbymasklayer", alg_params, context=context, feedback=feedback
@@ -292,7 +299,7 @@ def polygonize_landuse(parameters, context, feedback):
         "RANGE_BOUNDARIES": 2,  # min <= value <= max
         "RASTER_BAND": 1,
         "TABLE": CLASSES,
-        "OUTPUT": tmp["reclass"].name,
+        "OUTPUT": IndiceF3.tempDict["reclass_and_use.tif"],
     }
     reclass = processing.run(
         "native:reclassifybytable",
@@ -308,7 +315,7 @@ def polygonize_landuse(parameters, context, feedback):
         "EXTRA": "",
         "FIELD": "DN",
         "INPUT": reclass,
-        "OUTPUT": tmp["vector"].name,
+        "OUTPUT": IndiceF3.tempDict["Vector_landuse.shp"],
     }
     poly_path = processing.run(
         "gdal:polygonize",
@@ -317,10 +324,6 @@ def polygonize_landuse(parameters, context, feedback):
         feedback=feedback,
         is_child_algorithm=True,
     )["OUTPUT"]
-
-    for t in ["buffer", "clip", "reclass"]:
-        tmp[t].close()
-
     return QgsVectorLayer(poly_path, "landuse", "ogr")
 
 

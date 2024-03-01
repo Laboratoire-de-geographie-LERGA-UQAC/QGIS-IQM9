@@ -1,8 +1,7 @@
 import numpy as np
 import processing
-from tempfile import NamedTemporaryFile
+import gc
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
-import tempfile
 from qgis.core import (
     QgsProcessing,
     QgsProject,
@@ -33,6 +32,17 @@ class IndiceF2(QgsProcessingAlgorithm):
     ID_FIELD = "fid"
     DIVISIONS = 10
     NORM_RATIO = 0
+
+    tempDict = {
+        name: QgsProcessingUtils.generateTempFilename(name)
+        for name in [
+            "points.shp",
+            "reclass_landuse.tif",
+            "vector_landuse.shp",
+            "side_buffer.shp",
+            "merged_layer.shp",
+        ]
+    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(
@@ -119,23 +129,23 @@ class IndiceF2(QgsProcessingAlgorithm):
         expContext.appendScopes(scopes)
         parameters["expContext"] = expContext
 
-        for segment in source.getFeatures():
-
-            tmp = {}
-            tmp["points"] = NamedTemporaryFile(suffix=".shp")
-            tmp["normals"] = NamedTemporaryFile(suffix=".shp")
+        # try:
+        total = 100.0 / source.featureCount() if source.featureCount() else 0
+        # Itteration over all river networ features
+        for i, segment in enumerate(source.getFeatures()):
 
             if feedback.isCanceled():
                 break
 
             # logging.info(f"\n\nworking on : {segment[fid_idx]=}, {segment.id()=}")
 
+            # (.+)QgsProcessingUtils\.generateTempFilename\("([^"]*)"\)
             points = pointsAlongGeometry(
                 segment,
                 source,
                 context=context,
                 feedback=feedback,
-                output=tmp["points"].name,
+                output=IndiceF2.tempDict["points.shp"],
             )
             segment_mean_width = get_segment_mean_width(
                 segment, source, parameters, context=context, feedback=feedback
@@ -151,15 +161,18 @@ class IndiceF2(QgsProcessingAlgorithm):
             )
             # logging.info(f"normals created")
 
+            scopeCount = len(
+                QgsExpressionContextUtils.globalProjectLayerScopes(normals)
+            )
+
             parameters["expContext"].appendScopes(
                 QgsExpressionContextUtils.globalProjectLayerScopes(normals)
             )
 
+            print(parameters["expContext"].scopeCount())
             mean_unrestricted_distance = get_mean_unrestricted_distance(
                 normals, segment_mean_width, anthropic_layers, parameters
             )
-            # logging.info(f"mean_unrestricted_distance computed")
-            # logging.info(f"Segment : {segment.id()} => {mean_unrestricted_distance=}")
 
             # Determin the IQM Score
             indiceF2 = computeF2(mean_unrestricted_distance)
@@ -167,11 +180,28 @@ class IndiceF2(QgsProcessingAlgorithm):
             segment.setAttributes(segment.attributes() + [indiceF2])
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
-            # logging.info(f"{indiceF2=}")
-            # logging.info(f"{segment.id()} / {feature_count}\n\n")
-            # logging.info(f"segment{segment[fid_idx]} done !")
 
-            # delete temp folder
+            for i in range(scopeCount):
+                parameters["expContext"].popScope()
+
+            QgsProject.instance().removeMapLayer(points.id())
+            del (
+                points,
+                segment_mean_width,
+                normals,
+                mean_unrestricted_distance,
+                indiceF2,
+            )
+
+            gc.collect()
+
+            feedback.setProgress(int(i * total))
+
+            # except Exception as e:
+            #     feedback.reportError(str(e))
+            #     QgsMessageLog.logMessage(f"Error processing feature {feature.id()}: {str(e)}", 'Indice F2', Qgis.Critical)
+
+        QgsProject.instance().removeMapLayer(vectorised_landuse.id())
 
         return {self.OUTPUT: dest_id}
 
@@ -194,7 +224,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         return "indicateurs_iqm"
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F2")
+        return self.tr("Clacul l'indice F2")
 
 
 def polygonize_landuse(parameters, context, feedback):
@@ -251,7 +281,7 @@ def polygonize_landuse(parameters, context, feedback):
         "RANGE_BOUNDARIES": 2,  # min <= value <= max
         "RASTER_BAND": 1,
         "TABLE": CLASSES,
-        "OUTPUT": QgsProcessingUtils.generateTempFilename("reclass_landuse.tif"),
+        "OUTPUT": IndiceF2.tempDict["reclass_landuse.tif"],
     }
     reclass = processing.run(
         "native:reclassifybytable",
@@ -267,7 +297,7 @@ def polygonize_landuse(parameters, context, feedback):
         "EXTRA": "",
         "FIELD": "DN",
         "INPUT": reclass,
-        "OUTPUT": QgsProcessingUtils.generateTempFilename("vector_landuse.shp"),
+        "OUTPUT": IndiceF2.tempDict["vector_landuse.shp"],
     }
     poly_path = processing.run(
         "gdal:polygonize",
@@ -288,11 +318,15 @@ def evaluate_expression(expression_str, vlayer, feature=None, context=None):
         context = QgsExpressionContext()
         scopes = QgsExpressionContextUtils.globalProjectLayerScopes(vlayer)
         context.appendScopes(scopes)
+    print("In Eval Expr: context scope count = ", context.scopeCount())
 
     if feature:
         context.setFeature(feature)
 
-    return expression.evaluate(context)
+    res = expression.evaluate(context)
+    del context, expression
+
+    return res
 
 
 def pointsAlongGeometry(
@@ -334,10 +368,6 @@ def get_segment_mean_width(
 
 
 def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
-
-    tmp = {}
-    tmp["side_buffer"] = NamedTemporaryFile(suffix=".shp")
-    tmp["merged_layer"] = NamedTemporaryFile(suffix=".shp")
     # Geometry by expression
     side_normals = []
     width = max(10, width)
@@ -349,7 +379,7 @@ def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
             "OUTPUT_GEOMETRY": 1,  # Line
             "WITH_M": False,
             "WITH_Z": False,
-            "OUTPUT": tmp["side_buffer"].name,
+            "OUTPUT": IndiceF2.tempDict["side_buffer.shp"],
         }
         side_normals.append(
             processing.run(
@@ -365,13 +395,13 @@ def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
         {
             "LAYERS": side_normals,
             "CRS": None,
-            "OUTPUT": tmp["merged_layer"].name,
+            "OUTPUT": IndiceF2.tempDict["merged_layer.shp"],
         },
         feedback=feedback,
         is_child_algorithm=True,
     )["OUTPUT"]
     # logger.info(f"{res_id=}")
-    tmp["side_buffer"].close()
+
     return QgsVectorLayer(res_id, "normals", "ogr")
 
 
@@ -400,16 +430,18 @@ def get_mean_unrestricted_distance(
             ))
         )"""
 
-        obstructed_distances = np.array(
-            evaluate_expression(expr_str, normals, context=parameters["expContext"])
-        )
+        expr = evaluate_expression(expr_str, normals, context=parameters["expContext"])
+        obstructed_distances = np.array(expr)
         # logging.info(f"{obstructed_distances=}\n")
         diffs_array = np.maximum(diffs_array, obstructed_distances)
+        del obstructed_distances
         # logging.info(f"{obstructed_distances=}\n{diffs_array=}")
     unobstructed_lengths = normals_length - diffs_array - river_width / 2
-    # logging.info(f"{unobstructed_lengths=}, mean= {np.mean(unobstructed_lengths)}")
-    mean_length = np.mean(unobstructed_lengths)
-    return mean_length
+
+    QgsProject.instance().removeMapLayer(normals.id())
+    del diffs_array, normals
+
+    return np.mean(unobstructed_lengths)
 
 
 def computeF2(mean_length):

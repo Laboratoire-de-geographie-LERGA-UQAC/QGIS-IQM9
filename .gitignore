@@ -1,0 +1,12 @@
+*
+
+!Calcul_IQM.py
+!__init__.py
+!README.md
+!.gitignore
+
+!Indicateurs_IQM/
+!Indicateurs_IQM/calcul_*.py
+
+!IQM_Utils/
+!IQM_Utils/*.py

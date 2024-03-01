@@ -27,13 +27,13 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         results = {}
         outputs = {}
 
-        # Calcule pointeur D8
+        # Calcul pointeur D8
         alg_params = {
             'dem': parameters['dem'],
             'stream_network': parameters['cours_eau'],
             'D8pointer': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['CalculPointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -51,10 +51,9 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
             return {}
-
         # A1 A2 A3 F1
         alg_params = {
-            'd8': outputs['CalculePointeurD8']['D8pointer'],
+            'd8': outputs['CalculPointeurD8']['D8pointer'],
             'dams': parameters['barrages'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptrefs_largeur': parameters['ptref__largeur'],
@@ -63,6 +62,8 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['A1A2A3F1'] = processing.run('script:calculA123', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+
+        # outputs["A1A2A3F1"] = {"OUTPUT": parameters["cours_eau"]}
 
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
@@ -156,10 +157,10 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         return 'Calcul IQM'
 
     def group(self):
-        return ''
+        return 'IQM Automatique'
 
     def groupId(self):
-        return ''
+        return 'iqm_auto'
 
     def createInstance(self):
         return Renewed_compute_iqm()

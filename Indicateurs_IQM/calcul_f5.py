@@ -1,9 +1,9 @@
 import numpy as np
-from tempfile import NamedTemporaryFile
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
     QgsProcessing,
+    QgsProcessingUtils,
     QgsField,
     QgsFeatureSink,
     QgsFeatureRequest,
@@ -23,6 +23,15 @@ class IndiceF5(QgsProcessingAlgorithm):
     OUTPUT = "OUTPUT"
     ID_FIELD = "Id"
     TRANSECT_RATIO = 3
+
+    tempDict = {
+        name: QgsProcessingUtils.generateTempFilename(name)
+        for name in [
+            "points.shp",
+            "split_normals.shp",
+            "normals.shp",
+        ]
+    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(
@@ -80,6 +89,9 @@ class IndiceF5(QgsProcessingAlgorithm):
             source.sourceCrs(),
         )
 
+        total = 100.0 / source.featureCount() if source.featureCount() else 0
+        # Itteration over all river networ features
+        for i, segment in enumerate(source.getFeatures()):
         for segment in source.getFeatures():
 
             if feedback.isCanceled():
@@ -99,6 +111,10 @@ class IndiceF5(QgsProcessingAlgorithm):
             segment.setAttributes(segment.attributes() + [indiceF5])
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            feedback.setProgress(int(i * total))
+
+            del points_along_line, points_along_line
 
         return {self.OUTPUT: dest_id}
 
@@ -121,13 +137,10 @@ class IndiceF5(QgsProcessingAlgorithm):
         return self.tr("indicateurs_iqm")
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
+        return self.tr("Clacul l'indice F5 de l'IQM (sinuosité)")
 
 
 def pointsAlongLines(feature, source, context, feedback=None, output=None):
-    tmp = {}
-    tmp["points"] = NamedTemporaryFile(suffix=".shp")
-
     NUMBER = 50
 
     feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
@@ -138,7 +151,7 @@ def pointsAlongLines(feature, source, context, feedback=None, output=None):
         "END_OFFSET": 0,
         "INPUT": feature,
         "START_OFFSET": 0,
-        "OUTPUT": tmp["points"].name,
+        "OUTPUT": IndiceF5.tempDict["points.shp"],
     }
     result_id = processing.run(
         "native:pointsalonglines",
@@ -151,10 +164,6 @@ def pointsAlongLines(feature, source, context, feedback=None, output=None):
 
 
 def gen_split_normals(points, parameters, context, feedback=None, output=None):
-    tmp = {}
-    tmp["split_normals"] = NamedTemporaryFile(suffix=".shp")
-    tmp["normals"] = NamedTemporaryFile(suffix=".shp")
-
     # Geometry by expression
     TRANSECT_RATIO = 1.5
     TRANSECT_FLAT = 30
@@ -170,7 +179,7 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
             "OUTPUT_GEOMETRY": 1,  # Line
             "WITH_M": False,
             "WITH_Z": False,
-            "OUTPUT": tmp["split_normals"].name,
+            "OUTPUT": IndiceF5.tempDict["split_normals.shp"],
         }
         side_normals.append(
             processing.run(
@@ -185,7 +194,7 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
     alg_params = {
         "LAYERS": side_normals,
         "CRS": None,
-        "OUTPUT": tmp["normals"].name,
+        "OUTPUT": IndiceF5.tempDict["normals.shp"],
     }
     res_id = processing.run(
         "native:mergevectorlayers",
@@ -194,9 +203,6 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
         feedback=feedback,
         is_child_algorithm=True,
     )["OUTPUT"]
-
-    tmp["normals"].close()
-
     return QgsVectorLayer(res_id, "normals", "ogr")
 
 

@@ -1,10 +1,10 @@
 import numpy as np
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
-from tempfile import NamedTemporaryFile
 from qgis.core import (
     QgsField,
     QgsProcessing,
+    QgsProcessingUtils,
     QgsFeatureSink,
     QgsVectorLayer,
     QgsFeatureRequest,
@@ -26,6 +26,10 @@ class IndiceF4(QgsProcessingAlgorithm):
     DIVS = 100
     UTHRESH = 0.2
     LTHRESH = 0
+
+    tempDict = {
+        name: QgsProcessingUtils.generateTempFilename(name) for name in ["points.shp"]
+    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(
@@ -58,14 +62,7 @@ class IndiceF4(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, model_feedback):
         self.UTHRESH = self.parameterAsDouble(parameters, "thresh", context)
 
-        def pointsAlongGeometry(
-            feature,
-            source,
-            context,
-            feedback,
-        ):
-            tmp = {}
-            tmp["points"] = NamedTemporaryFile(suffix=".shp")
+        def pointsAlongGeometry(feature):
             # Materialize segment feature
             feature = source.materialize(
                 QgsFeatureRequest().setFilterFids([feature.id()])
@@ -79,7 +76,7 @@ class IndiceF4(QgsProcessingAlgorithm):
                 "END_OFFSET": 0,
                 "INPUT": feature,
                 "START_OFFSET": 0,
-                "OUTPUT": tmp["points"].name,
+                "OUTPUT": IndiceF4.tempDict["points.shp"],
             }
             output = processing.run(
                 "native:pointsalonglines",
@@ -154,15 +151,15 @@ class IndiceF4(QgsProcessingAlgorithm):
         )
         results[self.OUTPUT] = dest_id
 
-        for segment in source.getFeatures():
+        total = 100.0 / source.featureCount() if source.featureCount() else 0
+        # Itteration over all river networ features
+        for i, segment in enumerate(source.getFeatures()):
 
             if feedback.isCanceled():
                 return {}
 
             # gen points and normals along geometry
-            points_along_line = pointsAlongGeometry(
-                segment, source, context, model_feedback
-            )
+            points_along_line = pointsAlongGeometry(segment)
             div_distance = segment.geometry().length() / self.DIVS
 
             # Store normal length in numpy arrays
@@ -174,6 +171,11 @@ class IndiceF4(QgsProcessingAlgorithm):
             segment.setAttributes(segment.attributes() + [indiceF4])
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            feedback.setProgress(int(i * total))
+
+            del points_along_line
+
         return results
 
     def tr(self, string):
