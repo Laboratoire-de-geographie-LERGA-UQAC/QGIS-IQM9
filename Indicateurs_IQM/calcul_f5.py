@@ -113,7 +113,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 
             feedback.setProgress(int(i * total))
 
-            del points_along_line, points_along_line
+            # del points_along_line
 
         return {self.OUTPUT: dest_id}
 

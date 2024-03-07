@@ -172,7 +172,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
             feedback.setProgress(int(i * total))
 
-            del points_along_line
+            # del points_along_line
 
         return results
 

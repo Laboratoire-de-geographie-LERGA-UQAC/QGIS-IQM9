@@ -185,13 +185,13 @@ class IndiceF2(QgsProcessingAlgorithm):
                 parameters["expContext"].popScope()
 
             QgsProject.instance().removeMapLayer(points.id())
-            del (
-                points,
-                segment_mean_width,
-                normals,
-                mean_unrestricted_distance,
-                indiceF2,
-            )
+            # del (
+            #     points,
+            #     segment_mean_width,
+            #     normals,
+            #     mean_unrestricted_distance,
+            #     indiceF2,
+            # )
 
             gc.collect()
 
@@ -323,7 +323,7 @@ def evaluate_expression(expression_str, vlayer, feature=None, context=None):
         context.setFeature(feature)
 
     res = expression.evaluate(context)
-    del context, expression
+    # del context, expression
 
     return res
 
@@ -361,11 +361,11 @@ def get_segment_mean_width(
                 """
     )
 
-    evaluate_expression(
+    res = evaluate_expression(
         expr, source, feature=feature, context=parameters["expContext"]
     )
 
-    return resg
+    return res
 
 
 def gen_split_normals(points, parameters, width=0, context=None, feedback=None):
@@ -435,12 +435,12 @@ def get_mean_unrestricted_distance(
         obstructed_distances = np.array(expr)
         # logging.info(f"{obstructed_distances=}\n")
         diffs_array = np.maximum(diffs_array, obstructed_distances)
-        del obstructed_distances
+        # del obstructed_distances
         # logging.info(f"{obstructed_distances=}\n{diffs_array=}")
     unobstructed_lengths = normals_length - diffs_array - river_width / 2
 
     QgsProject.instance().removeMapLayer(normals.id())
-    del diffs_array, normals
+    # del diffs_array, normals
 
     return np.mean(unobstructed_lengths)
 
