@@ -374,10 +374,10 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         return {self.OUTPUT: dest_id}
 
     def name(self):
-        return "calculA123"
+        return "calculA123F1"
 
     def displayName(self):
-        return "Calcul A1 A2 A3"
+        return "Calcul A1 A2 A3 F1"
 
     def group(self):
         return "Indicateurs IQM"
