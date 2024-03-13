@@ -28,8 +28,9 @@ class IndiceF4(QgsProcessingAlgorithm):
     LTHRESH = 0
 
     tempDict = {
-        name: QgsProcessingUtils.generateTempFilename(name) for name in ["points.shp"]
+        name: 'TEMPORARY_OUTPUT' for name in ["points.shp"]
     }
+    # name: QgsProcessingUtils.generateTempFilename(name) for name in ["points.shp"]
 
     def initAlgorithm(self, config=None):
         self.addParameter(

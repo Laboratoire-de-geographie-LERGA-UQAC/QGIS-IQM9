@@ -25,9 +25,10 @@ class IndiceF5(QgsProcessingAlgorithm):
     TRANSECT_RATIO = 3
 
     tempDict = {
-        name: QgsProcessingUtils.generateTempFilename(name)
+        #name: QgsProcessingUtils.generateTempFilename(name)
+        name: 'TEMPORARY_OUTPUT'
         for name in [
-            "points.shp",
+                        "points.shp",
             "split_normals.shp",
             "normals.shp",
         ]

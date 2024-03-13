@@ -32,15 +32,21 @@ class IndiceF3(QgsProcessingAlgorithm):
     tempDict = {
         name: QgsProcessingUtils.generateTempFilename(name)
         for name in [
-            "split_line.shp",
-            "side_buffers.shp",
-            "Buffers.shp",
-            "Buffer.shp",
             "clip.tif",
             "reclass_and_use.tif",
             "Vector_landuse.shp",
         ]
     }
+
+    tempDict.update({
+        name: 'TEMPORARY_OUTPUT'
+        for name in [
+            "split_line.shp",
+            "side_buffers.shp",
+            "Buffers.shp",
+            "Buffer.shp",
+        ]
+    })
 
     def initAlgorithm(self, config=None):
         self.addParameter(

@@ -35,19 +35,25 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         for name in [
             "watershed.tif",
             "outlets.shp",
-            "outlet.shp",
             "subwshed.tif",
-            "vector_1.shp",
-            "vector_2.shp",
+            "table.gpkg",
+        ]
+    }
+
+    tempDict.update({
+        name: 'TEMPORARY_OUTPUT'
+        for name in [
+            "raster_clip.tif",
+            "outlet.shp",
             "buffer_1km",
             "buffer_2.shp",
             "buffer_2x.shp",
             "landuse.tif",
-            "raster_clip.tif",
-            "table.gpkg",
+            "vector_1.shp",
+            "vector_2.shp",
             "dams_clip.shp",
         ]
-    }
+    })
 
     def initAlgorithm(self, config=None):
         self.addParameter(
@@ -100,7 +106,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
         # overall progress through the model
         outputs = {}
-
+        
         feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
         # Source definition
         source = self.parameterAsVectorLayer(parameters, self.STREAM_NET, context)

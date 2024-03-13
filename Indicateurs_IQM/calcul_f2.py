@@ -37,13 +37,19 @@ class IndiceF2(QgsProcessingAlgorithm):
     tempDict = {
         name: QgsProcessingUtils.generateTempFilename(name)
         for name in [
-            "points.shp",
             "reclass_landuse.tif",
             "vector_landuse.shp",
             "side_buffer.shp",
-            "merged_layer.shp",
         ]
     }
+
+    tempDict.update({
+        name: 'TEMPORARY_OUTPUT'
+        for name in [
+            "points.shp",
+            "merged_layer.shp",
+        ]
+    })
 
     def initAlgorithm(self, config=None):
         self.addParameter(
