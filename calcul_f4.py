@@ -32,7 +32,6 @@ from qgis.core import (
   )
 
 
-
 class IndiceF4(QgsProcessingAlgorithm):
 
     OUTPUT = 'OUTPUT'
