@@ -33,10 +33,40 @@ class IndiceF5(QgsProcessingAlgorithm):
     TRANSECT_RATIO = 3
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', 'Bande_riveraine_polly', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                'bande_riveraine_polly',
+                'Bande_riveraine_polly',
+                types=[QgsProcessing.TypeVectorPolygon],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                'ptref_widths',
+                'PtRef_widths',
+                types=[QgsProcessing.TypeVectorPoint],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                'rivnet',
+                'RivNet',
+                types=[QgsProcessing.TypeVectorLine],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterFeatureSink(
+                self.OUTPUT,
+                self.OUTPUT,
+                type=QgsProcessing.TypeVectorAnyGeometry,
+                createByDefault=True,
+                supportsAppend=True,
+                defaultValue=None,
+            )
+        )
 
     def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -119,6 +149,7 @@ def pointsAlongLines(feature, source, context, feedback=None, output=None):
     result_id = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return QgsVectorLayer(result_id, 'points', "ogr")
 
+
 def gen_split_normals(points, parameters, context, feedback=None, output=None):
     # Geometry by expression
     TRANSECT_RATIO = 1.5
@@ -143,6 +174,7 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
     res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
     return QgsVectorLayer(res_id, 'normals', "ogr")
 
+
 def evaluate_expression(expression_str, vlayer, feature=None ):
     expression = QgsExpression(expression_str)
     context = QgsExpressionContext()
@@ -152,6 +184,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
     context.appendScopes(scopes)
     res = expression.evaluate(context)
     return res
+
 
 def get_bandriv_width_arr(vlayer, parameters):
     #Evaluating intersection distance
@@ -172,6 +205,7 @@ def get_bandriv_width_arr(vlayer, parameters):
     expr = QgsExpression(f"array_agg({intersection_expr})")
     result = np.array(evaluate_expression(expr, vlayer))
     return result
+
 
 def computeF5(br_widths_arr):
     # Compute Iqm from sequence continuity

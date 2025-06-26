@@ -44,11 +44,48 @@ class IndiceF3(QgsProcessingAlgorithm):
     DIVISIONS = 10
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', optional=True, layerType=QgsProcessing.TypeVector, defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                'ptref_widths',
+                'PtRef_widths',
+                types=[QgsProcessing.TypeVectorPoint],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterMultipleLayers(
+                'antropic_layers',
+                'Antropic layers',
+                optional=True,
+                layerType=QgsProcessing.TypeVector,
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                'rivnet',
+                'RivNet',
+                types=[QgsProcessing.TypeVectorLine],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterRasterLayer(
+                'landuse',
+                'Utilisation du territoir',
+                defaultValue=None
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterFeatureSink(
+                self.OUTPUT,
+                self.OUTPUT,
+                type=QgsProcessing.TypeVectorAnyGeometry,
+                createByDefault=True,
+                supportsAppend=True,
+                defaultValue=None,
+            )
+        )
 
     def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -94,7 +131,7 @@ class IndiceF3(QgsProcessingAlgorithm):
             # Compute the IQM Score
             indiceF3 = computeF3(intersect_array)
 
-            #Write to layer
+            # Write to layer
             segment.setAttributes(segment.attributes() + [indiceF3])
 
             # Add a feature to sink
@@ -124,8 +161,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         return self.tr("Clacule l'indice F3")
 
 
-
-def evaluate_expression(expression_str, vlayer, feature=None ):
+def evaluate_expression(expression_str, vlayer, feature=None):
     expression = QgsExpression(expression_str)
     context = QgsExpressionContext()
     if feature:
@@ -135,6 +171,7 @@ def evaluate_expression(expression_str, vlayer, feature=None ):
     res = expression.evaluate(context)
     return res
 
+
 def split_buffer(feature, source, parameters, context, feedback=None):
     DIVISIONS = 50
     BUFF_RATIO = 1
@@ -143,8 +180,8 @@ def split_buffer(feature, source, parameters, context, feedback=None):
     # Spliting river segment into a fixed number of subsegments.
     segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
     alg_param = {
-    'INPUT':segment,
-    'LENGTH':feature.geometry().length() / DIVISIONS,
+    'INPUT': segment,
+    'LENGTH': feature.geometry().length() / DIVISIONS,
     'OUTPUT': QgsProcessingUtils.generateTempFilename("split_line.shp"),
     }
     split = processing.run('native:splitlinesbylength', alg_param, context=context, is_child_algorithm=True)['OUTPUT']
@@ -209,13 +246,14 @@ def polygonize_landuse(parameters, context, feedback):
         'OUTPUT': QgsProcessingUtils.generateTempFilename("Vector_landuse.shp")
     }
     poly_path = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+
     return QgsVectorLayer(poly_path, "landuse", "ogr")
 
 
 def computeF3(intersect_arr):
     # Compute Iqm from sequence continuity
     ratio = np.mean(1 - intersect_arr) # Sum number of unrestricted segments
-    # print(f"Unrestricted ratio : {ratio}")
+
     if (ratio >= 0.9):
         return 0
     if (ratio >= 0.66):

@@ -54,18 +54,71 @@ logger.info("Algo start")
 
 class IndiceF2(QgsProcessingAlgorithm):
 
-    OUTPUT = 'OUTPUT'
-    ID_FIELD = 'fid'
+    OUTPUT = "OUTPUT"
+    ID_FIELD = "fid"
     DIVISIONS = 10
     NORM_RATIO = 0
 
+    tempDict = {
+        name: QgsProcessingUtils.generateTempFilename(name)
+        for name in [
+            "reclass_landuse.tif",
+            "vector_landuse.shp",
+            "side_buffer.shp",
+        ]
+    }
+
+    tempDict.update({
+        name: 'TEMPORARY_OUTPUT'
+        for name in [
+            "points.shp",
+            "merged_layer.shp",
+        ]
+    })
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterMultipleLayers('antropic_layers', 'Antropic layers', layerType=QgsProcessing.TypeVector, defaultValue=None, optional=True))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'RivNet', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.OUTPUT, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(
+            QgsProcessingParameterMultipleLayers(
+                "antropic_layers",
+                "Antropic layers",
+                layerType=QgsProcessing.TypeVector,
+                defaultValue=None,
+                optional=True,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                "ptref_widths",
+                "PtRef_widths",
+                types=[QgsProcessing.TypeVectorPoint],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterVectorLayer(
+                "rivnet",
+                "RivNet",
+                types=[QgsProcessing.TypeVectorLine],
+                defaultValue=None,
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterRasterLayer(
+                "landuse",
+                "Utilisation du territoir",
+                defaultValue=None
+            )
+        )
+        self.addParameter(
+            QgsProcessingParameterFeatureSink(
+                self.OUTPUT,
+                self.OUTPUT,
+                type=QgsProcessing.TypeVectorAnyGeometry,
+                createByDefault=True,
+                supportsAppend=True,
+                defaultValue=None,
+            )
+        )
 
     def processAlgorithm(self, parameters, context, model_feedback):
 
@@ -108,6 +161,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         expContext.appendScopes(scopes)
         parameters['expContext'] = expContext
 
+        # Itteration over all river network features
         for segment in source.getFeatures():
 
             if feedback.isCanceled():
