@@ -1,3 +1,10 @@
+"""
+Model exported as python.
+Name : Renewed_Compute_IQM
+Group :
+With QGIS : 33000
+"""
+
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -10,15 +17,15 @@ import processing
 class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande riveraine', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande_riv', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('barrages', 'Barrages', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Réseau hydrographique', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'MNT', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Cours_eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', 'PtRef - Largeur', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('routes', 'Routes', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('structures', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'Output', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'IQM', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -27,13 +34,13 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         results = {}
         outputs = {}
 
-        # Calcul pointeur D8
+        # Calcule pointeur D8
         alg_params = {
             'dem': parameters['dem'],
             'stream_network': parameters['cours_eau'],
             'D8pointer': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['CalculPointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -51,9 +58,10 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
             return {}
+
         # A1 A2 A3 F1
         alg_params = {
-            'd8': outputs['CalculPointeurD8']['D8pointer'],
+            'd8': outputs['CalculePointeurD8']['D8pointer'],
             'dams': parameters['barrages'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptrefs_largeur': parameters['ptref__largeur'],
@@ -61,9 +69,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
             'structures': outputs['FiltrerStructures']['New_structures'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['A1A2A3F1'] = processing.run('script:calculA123F1', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
-        # outputs["A1A2A3F1"] = {"OUTPUT": parameters["cours_eau"]}
+        outputs['A1A2A3F1'] = processing.run('script:calculA123', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
@@ -157,10 +163,10 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         return 'Calcul IQM'
 
     def group(self):
-        return 'IQM Automatique'
+        return ''
 
     def groupId(self):
-        return 'iqm_auto'
+        return ''
 
     def createInstance(self):
         return Renewed_compute_iqm()

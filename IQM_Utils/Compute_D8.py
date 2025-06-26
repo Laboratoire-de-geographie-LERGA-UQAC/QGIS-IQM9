@@ -1,3 +1,10 @@
+"""
+Model exported as python.
+Name : compute_d8_GRHQ
+Group :
+With QGIS : 33000
+"""
+
 from qgis.core import (
     QgsProcessing,
     QgsProcessingUtils,
@@ -81,7 +88,7 @@ class Compute_d8(QgsProcessingAlgorithm):
         return 'computed8'
 
     def displayName(self):
-        return 'Calcul pointeur D8'
+        return 'Calcule pointeur D8'
 
     def group(self):
         return 'IQM_utils'

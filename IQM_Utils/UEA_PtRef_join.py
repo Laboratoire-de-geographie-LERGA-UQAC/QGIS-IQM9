@@ -1,3 +1,10 @@
+"""
+Model exported as python.
+Name : UEA_PtRef_join
+Group :
+With QGIS : 33000
+"""
+
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -53,7 +60,7 @@ class Uea_ptref_join(QgsProcessingAlgorithm):
         return 'UEA_PtRef_join'
 
     def displayName(self):
-        return 'Join PtRef - Mod'
+        return 'UEA_PtRef_join'
 
     def group(self):
         return 'IQM_utils'

@@ -1,3 +1,11 @@
+"""
+Model exported as python.
+Name : IQM indice F5
+Group :
+With QGIS : 32802
+Author : Karim Mehour
+"""
+
 import numpy as np
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
@@ -17,44 +25,34 @@ from qgis.core import (
     QgsProcessingParameterFeatureSink,
     QgsProperty,
 )
-
+import sys
 
 class IndiceF5(QgsProcessingAlgorithm):
-    OUTPUT = "OUTPUT"
-    ID_FIELD = "Id"
+    OUTPUT = 'OUTPUT'
+    ID_FIELD = 'Id'
     TRANSECT_RATIO = 3
-
-    tempDict = {
-        #name: QgsProcessingUtils.generateTempFilename(name)
-        name: 'TEMPORARY_OUTPUT'
-        for name in [
-                        "points.shp",
-            "split_normals.shp",
-            "normals.shp",
-        ]
-    }
 
     def initAlgorithm(self, config=None):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
-                "bande_riveraine_polly",
-                "Bande_riveraine_polly",
+                'bande_riveraine_polly',
+                'Bande_riveraine_polly',
                 types=[QgsProcessing.TypeVectorPolygon],
                 defaultValue=None,
             )
         )
         self.addParameter(
             QgsProcessingParameterVectorLayer(
-                "ptref_widths",
-                "PtRef_widths",
+                'ptref_widths',
+                'PtRef_widths',
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
         )
         self.addParameter(
             QgsProcessingParameterVectorLayer(
-                "rivnet",
-                "RivNet",
+                'rivnet',
+                'RivNet',
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -76,7 +74,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 
         # Define source stream net
-        source = self.parameterAsSource(parameters, "rivnet", context)
+        source = self.parameterAsSource(parameters, 'rivnet', context)
 
         # Define Sink
         sink_fields = source.fields()
@@ -87,57 +85,52 @@ class IndiceF5(QgsProcessingAlgorithm):
             context,
             sink_fields,
             source.wkbType(),
-            source.sourceCrs(),
+            source.sourceCrs()
         )
 
-        total = 100.0 / source.featureCount() if source.featureCount() else 0
-        # Itteration over all river networ features
-        for i, segment in enumerate(source.getFeatures()):
+        for segment in source.getFeatures():
 
             if feedback.isCanceled():
                 return {}
-
+    
             # gen transects, and analyse intersection with 'Bande riv'
             points_along_line = pointsAlongLines(segment, source, context, feedback)
-            normals = gen_split_normals(
-                points_along_line, parameters, context, feedback
-            )
+            normals = gen_split_normals(points_along_line, parameters, context, feedback)
             br_widths_arr = get_bandriv_width_arr(normals, parameters)
 
             # Compute the IQM Score
             indiceF5 = computeF5(br_widths_arr)
 
             # Write Index to layer
-            segment.setAttributes(segment.attributes() + [indiceF5])
+            segment.setAttributes(
+                segment.attributes() + [indiceF5]
+            )
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
 
-            feedback.setProgress(int(i * total))
 
-            # del points_along_line
-
-        return {self.OUTPUT: dest_id}
+        return {self.OUTPUT : dest_id}
 
     def tr(self, string):
-        return QCoreApplication.translate("Processing", string)
+        return QCoreApplication.translate('Processing', string)
 
     def createInstance(self):
         return IndiceF5()
 
     def name(self):
-        return "indicef5"
+        return 'indicef5'
 
     def displayName(self):
-        return self.tr("Indice F5")
+        return self.tr('Indice F5')
 
     def group(self):
-        return self.tr("Indicateurs IQM")
+        return self.tr('IQM')
 
     def groupId(self):
-        return self.tr("indicateurs_iqm")
+        return self.tr('iqm')
 
     def shortHelpString(self):
-        return self.tr("Clacul l'indice F5 de l'IQM (sinuosité)")
+        return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
 
 
 def pointsAlongLines(feature, source, context, feedback=None, output=None):
@@ -147,20 +140,14 @@ def pointsAlongLines(feature, source, context, feedback=None, output=None):
 
     # Points along lines
     alg_params = {
-        "DISTANCE": QgsProperty.fromExpression(f"length(@geometry) / {NUMBER}"),
-        "END_OFFSET": 0,
-        "INPUT": feature,
-        "START_OFFSET": 0,
-        "OUTPUT": IndiceF5.tempDict["points.shp"],
+        'DISTANCE': QgsProperty.fromExpression(f"length(@geometry) / {NUMBER}"),
+        'END_OFFSET': 0,
+        'INPUT': feature,
+        'START_OFFSET': 0,
+        'OUTPUT': QgsProcessingUtils.generateTempFilename("points.shp"),
     }
-    result_id = processing.run(
-        "native:pointsalonglines",
-        alg_params,
-        context=context,
-        feedback=feedback,
-        is_child_algorithm=True,
-    )["OUTPUT"]
-    return QgsVectorLayer(result_id, "points", "ogr")
+    result_id = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    return QgsVectorLayer(result_id, 'points', "ogr")
 
 
 def gen_split_normals(points, parameters, context, feedback=None, output=None):
@@ -171,42 +158,24 @@ def gen_split_normals(points, parameters, context, feedback=None, output=None):
     side_normals = []
     for angle in [90, -90]:
         alg_params = {
-            "EXPRESSION": f"""with_variable(
+            'EXPRESSION':f"""with_variable(
                 'len',overlay_nearest('{parameters['ptref_widths']}',Largeur_mod)[0] * {0.5 + TRANSECT_RATIO} + {TRANSECT_FLAT},
                 make_line(@geometry,project(@geometry,@len,radians(\"angle\" + {angle}))))
             """,
-            "INPUT": points,
-            "OUTPUT_GEOMETRY": 1,  # Line
-            "WITH_M": False,
-            "WITH_Z": False,
-            "OUTPUT": IndiceF5.tempDict["split_normals.shp"],
+            'INPUT': points,
+            'OUTPUT_GEOMETRY': 1,  # Line
+            'WITH_M': False,
+            'WITH_Z': False,
+            'OUTPUT': QgsProcessingUtils.generateTempFilename("split_normals.shp")
         }
-        side_normals.append(
-            processing.run(
-                "native:geometrybyexpression",
-                alg_params,
-                context=context,
-                feedback=feedback,
-                is_child_algorithm=True,
-            )["OUTPUT"]
-        )
-
-    alg_params = {
-        "LAYERS": side_normals,
-        "CRS": None,
-        "OUTPUT": IndiceF5.tempDict["normals.shp"],
-    }
-    res_id = processing.run(
-        "native:mergevectorlayers",
-        alg_params,
-        context=context,
-        feedback=feedback,
-        is_child_algorithm=True,
-    )["OUTPUT"]
-    return QgsVectorLayer(res_id, "normals", "ogr")
+        side_normals.append(processing.run('native:geometrybyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT'])
+    
+    alg_params = {'LAYERS':side_normals, 'CRS':None, 'OUTPUT':QgsProcessingUtils.generateTempFilename("normals.shp")}
+    res_id = processing.run("native:mergevectorlayers", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+    return QgsVectorLayer(res_id, 'normals', "ogr")
 
 
-def evaluate_expression(expression_str, vlayer, feature=None):
+def evaluate_expression(expression_str, vlayer, feature=None ):
     expression = QgsExpression(expression_str)
     context = QgsExpressionContext()
     if feature:
@@ -218,7 +187,7 @@ def evaluate_expression(expression_str, vlayer, feature=None):
 
 
 def get_bandriv_width_arr(vlayer, parameters):
-    # Evaluating intersection distance
+    #Evaluating intersection distance
     intersection_expr = f"""
         max(
             0,
@@ -240,14 +209,14 @@ def get_bandriv_width_arr(vlayer, parameters):
 
 def computeF5(br_widths_arr):
     # Compute Iqm from sequence continuity
-    if np.mean(br_widths_arr >= 30) >= 0.9:
+    if (np.mean(br_widths_arr >= 30)  >= 0.9):
         return 0
-    if np.mean(br_widths_arr >= 30) >= 0.66:
+    if (np.mean(br_widths_arr >= 30) >= 0.66):
         return 1
-    if np.mean(br_widths_arr >= 15) >= 0.66:
+    if (np.mean(br_widths_arr >= 15) >= 0.66):
         return 2
-    if np.mean(br_widths_arr >= 30) >= 0.33:
+    if (np.mean(br_widths_arr >= 30) >= 0.33):
         return 2
-    if np.mean(br_widths_arr >= 15) >= 0.33:
+    if (np.mean(br_widths_arr >= 15) >= 0.33):
         return 3
     return 4
