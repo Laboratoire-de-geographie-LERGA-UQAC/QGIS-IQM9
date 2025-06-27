@@ -5,6 +5,7 @@ Group :
 With QGIS : 32601
 """
 from tempfile import NamedTemporaryFile as Ntf
+import os
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
                         QgsField,
@@ -48,9 +49,9 @@ class IndiceA3(QgsProcessingAlgorithm):
 
         # Create temporary file locations
         tmp = {
-            'table':Ntf(suffix="table"),
-            'buffer':Ntf(suffix="buffer"),
-            'mainWatershed':Ntf(suffix="watershed.tif"),
+            'table':Ntf(suffix="table", delete=False),
+            'buffer':Ntf(suffix="buffer", delete=False),
+            'mainWatershed':Ntf(suffix="watershed.tif", delete=False),
         }
 
         # Define source stream net
@@ -187,7 +188,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'JOIN_STYLE':0,'MITER_LIMIT':2,
                 'DISSOLVE':True,
                 #'OUTPUT':f"tmp/buffer{fid}.gpkg"
-                'OUTPUT':tmp['buffer'].name
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
             outputs['damBuffer'] = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
@@ -289,6 +290,7 @@ class IndiceA3(QgsProcessingAlgorithm):
         # Clear temporary files
         for tempfile in tmp.values():
             tempfile.close()
+            os.remove(tempfile.name)
 
         return {self.OUTPUT: dest_id}
 

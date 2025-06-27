@@ -1,5 +1,6 @@
 
 from tempfile import NamedTemporaryFile as Ntf
+import os
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
 					   QgsField,
@@ -36,8 +37,8 @@ class IndiceA2(QgsProcessingAlgorithm):
 
 		# Create temporary file locations
 		tmp = {
-			'mainWatershed' : Ntf(suffix="watershed.tif"),
-			'subWatershed' : Ntf(suffix="sub-watershed.tif"),
+			'mainWatershed' : Ntf(suffix="watershed.tif", delete=False),
+			'subWatershed' : Ntf(suffix="sub-watershed.tif", delete=False),
 		}
 
 		# Define source stream net
@@ -199,6 +200,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 		# Clear temporary files
 		for tempfile in tmp.values():
 			tempfile.close()
+			os.remove(tempfile.name)
 
 		return {self.OUTPUT: dest_id}
 
