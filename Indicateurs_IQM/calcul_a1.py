@@ -1,4 +1,5 @@
-
+from tempfile import NamedTemporaryFile as Ntf
+import os
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
@@ -43,7 +44,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 		# Dictionnary that will contain all temporary file locations
 		tmp = {}
-		tmp['watershed'] = Ntf(suffix="watershed.tif")
+		tmp['watershed'] = Ntf(suffix="watershed.tif", delete=False)
 
 		# Define source stream net
 		source = self.parameterAsSource(parameters, 'stream_network', context)
@@ -182,7 +183,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 			outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
 			# Landuse unique values report
-			tmp['table'] = Ntf(suffix="table")
+			tmp['table'] = Ntf(suffix="table", delete=False)
 			alg_params = {
 				'BAND': 1,
 				'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
@@ -237,6 +238,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		# Clear temporary files
 		for tempfile in tmp.values():
 			tempfile.close()
+			os.remove(tempfile.name)
 
 		return {self.OUTPUT : dest_id}
 
