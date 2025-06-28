@@ -27,9 +27,9 @@ class IndiceF1(QgsProcessingAlgorithm):
     FID = "Id"
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Reseau hydrologique'), [QgsProcessing.TypeVectorLine]))
-        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output layer')))
+        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrologique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures filtrées (sortant de Filter structures; MTQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         feedback = QgsProcessingMultiStepFeedback(11, model_feedback)

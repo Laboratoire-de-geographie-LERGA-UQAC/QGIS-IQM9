@@ -17,15 +17,15 @@ import processing
 class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande_riv', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('barrages', 'Barrages', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Cours_eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', 'PtRef - Largeur', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('routes', 'Routes', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('structures', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'IQM', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande riveraine (peuplement forestier; MELCCFP)', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('barrages', 'Barrages (CEHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Réseau hydrologique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'MNT LiDAR (10 m)', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', 'PtRef largeur (CRHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('routes', 'Réseau routier (OSM)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('structures', 'Structures (MTQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', 'Utilisation du territoire (MELCCFP)', defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'Couche de sortie', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -88,7 +88,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
         # Indice F2
         alg_params = {
-            'antropic_layers': parameters['routes'],
+            'anthropic_layers': parameters['routes'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptref_widths': parameters['ptref__largeur'],
             'rivnet': outputs['IndiceA4']['OUTPUT'],
@@ -102,7 +102,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
         # Indice F3
         alg_params = {
-            'antropic_layers': parameters['routes'],
+            'anthropic_layers': parameters['routes'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptref_widths': parameters['ptref__largeur'],
             'rivnet': outputs['IndiceF2']['OUTPUT'],

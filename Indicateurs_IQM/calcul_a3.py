@@ -32,12 +32,12 @@ class IndiceA3(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Cours d'eau", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrologique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Barrages (CEHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoire (MELCCFP)', defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef largeur (CRHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
     def processAlgorithm(self, parameters, context, model_feedback):

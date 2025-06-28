@@ -48,13 +48,13 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 	TMP_VECTOR2 = 'vector2'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, 'D8', defaultValue=None))
-		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('LandUse'), defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.STREAM_NET, self.tr('Cours d\'eau'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.DAMS, self.tr('Barrages'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.STRUCTS, self.tr('Structures'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.PTREFS, self.tr('PtRefs - Largeur'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.STREAM_NET, self.tr('Réseau hydrologique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.DAMS, self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.STRUCTS, self.tr('Structures (MTQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.PTREFS, self.tr('PtRef largeur cours d\'eau (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the

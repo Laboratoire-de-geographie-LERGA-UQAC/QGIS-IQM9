@@ -79,8 +79,8 @@ class IndiceF2(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(
             QgsProcessingParameterMultipleLayers(
-                "antropic_layers",
-                "Antropic layers",
+                "anthropic_layers",
+                "Réseau routier (OSM)",
                 layerType=QgsProcessing.TypeVector,
                 defaultValue=None,
                 optional=True,
@@ -89,7 +89,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "ptref_widths",
-                "PtRef_widths",
+                "PtRef largeur (CRHQ)",
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
@@ -97,7 +97,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "rivnet",
-                "RivNet",
+                "Réseau hydrologique (CRHQ)",
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -105,14 +105,14 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 "landuse",
-                "Utilisation du territoir",
+                "Utilisation du territoire (MELCCFP)",
                 defaultValue=None
             )
         )
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.OUTPUT,
+                self.tr('Couche de sortie'),
                 type=QgsProcessing.TypeVectorAnyGeometry,
                 createByDefault=True,
                 supportsAppend=True,
@@ -144,7 +144,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         )
 
         parameters['ratio'] = self.NORM_RATIO
-        anthropic_layers = self.parameterAsLayerList(parameters, 'antropic_layers', context)
+        anthropic_layers = self.parameterAsLayerList(parameters, 'anthropic_layers', context)
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
         # Reclassify landUse

@@ -36,7 +36,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'bande_riveraine_polly',
-                'Bande_riveraine_polly',
+                'Bande riveraine (peuplement forestier; MELCCFP)',
                 types=[QgsProcessing.TypeVectorPolygon],
                 defaultValue=None,
             )
@@ -44,7 +44,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'ptref_widths',
-                'PtRef_widths',
+                'PtRef largeur (CRHQ)',
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
@@ -52,7 +52,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'rivnet',
-                'RivNet',
+                'Réseau hydrologique (CRHQ)',
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -60,7 +60,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.OUTPUT,
+                self.tr('Couche de sortie'),
                 type=QgsProcessing.TypeVectorAnyGeometry,
                 createByDefault=True,
                 supportsAppend=True,

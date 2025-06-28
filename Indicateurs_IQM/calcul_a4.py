@@ -33,7 +33,7 @@ class calculerIc(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
-                self.tr('Input layer'),
+                self.tr('Réseau hydrologique (CRHQ)'),
                 [QgsProcessing.TypeVectorAnyGeometry]
             )
         )
@@ -44,7 +44,7 @@ class calculerIc(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.tr('Output layer')
+                self.tr('Couche de sortie')
             )
         )
 

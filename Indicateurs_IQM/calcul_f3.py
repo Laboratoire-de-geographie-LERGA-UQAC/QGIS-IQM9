@@ -47,15 +47,15 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'ptref_widths',
-                'PtRef_widths',
+                'PtRef largeur (CRHQ)',
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
         )
         self.addParameter(
             QgsProcessingParameterMultipleLayers(
-                'antropic_layers',
-                'Antropic layers',
+                'anthropic_layers',
+                'Réseau routier (OSM)',
                 optional=True,
                 layerType=QgsProcessing.TypeVector,
                 defaultValue=None,
@@ -64,7 +64,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'rivnet',
-                'RivNet',
+                'Réseau hydrologique (CRHQ)',
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -72,14 +72,14 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 'landuse',
-                'Utilisation du territoir',
+                'Utilisation du territoire (MELCCFP)',
                 defaultValue=None
             )
         )
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.OUTPUT,
+                self.tr('Couche de sortie'),
                 type=QgsProcessing.TypeVectorAnyGeometry,
                 createByDefault=True,
                 supportsAppend=True,
@@ -109,7 +109,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
         assert fid_idx >= 0, "field_index not found"
-        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
+        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'anthropic_layers', context)]
 
         # Reclassify landUse
         vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
