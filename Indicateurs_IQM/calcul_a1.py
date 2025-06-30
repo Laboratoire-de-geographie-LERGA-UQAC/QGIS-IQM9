@@ -31,7 +31,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.RIVNET, self.tr('Réseau hydrologique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.RIVNET, self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
@@ -259,4 +259,18 @@ class IndiceA1(QgsProcessingAlgorithm):
 		return 'iqm'
 
 	def shortHelpString(self):
-		return self.tr("Clacule l'indice A1")
+		return self.tr(
+			"Calcule de l'indice A1 afin d'évaluer de manière indirecte le niveau d’altération des régimes hydrologiques et sédimentaires à l’intérieur de l’aire de drainage par l’entremise de l’affectation du territoire en amont du segment.\n Les types d’affectation visés par l’indicateur sont les milieux forestiers et agricoles qui s’avèrent les classes les plus communes dans le Québec méridional. La quantification du recouvrement de ces milieux à l’intérieur du bassin versant permet ainsi d’évaluer l’état d’altération des processus hydrogéomorphologiques à l’échelle du bassin versant selon les classes de recouvrement.\n" \
+			"Paramètres\n" \
+			"----------\n" \
+			"WBT D8 Pointer: Matriciel\n" \
+			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+			"Utilisation du territoire : Matriciel\n" \
+			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"Réseau hydrographique : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Retourne\n" \
+			"----------\n" \
+			"Couche de sortie : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique du bassin versant avec le score de l'indice A1 calculé pour chaque UEA."
+		)

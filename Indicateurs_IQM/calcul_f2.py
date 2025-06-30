@@ -97,7 +97,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "rivnet",
-                "Réseau hydrologique (CRHQ)",
+                "Réseau hydrographique (CRHQ)",
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -215,7 +215,23 @@ class IndiceF2(QgsProcessingAlgorithm):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F2")
+        return self.tr(
+            "Calcule de l'indice F2 afin d'évaluer la connectivité latérale avec la plaine alluviale.\n L'outil prend en compte les éléments de déconnexion artificielle  présents sur la plaine alluviale (réseau routier et affectation urbaine à l'intérieur de la plaine) afin d'évaluer la connectivité latérale potentielle des deux rives. La connectivité latérale est évaluée à partir d'une largeur minimale de 15 m jusqu'à une distance maximale de 50 m.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau routier : Vectoriel (lignes)\n" \
+            "-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F2 calculé pour chaque UEA."
+        )
 
 def polygonize_landuse(parameters, context, feedback):
 

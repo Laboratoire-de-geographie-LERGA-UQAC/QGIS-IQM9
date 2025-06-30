@@ -52,7 +52,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'rivnet',
-                'Réseau hydrologique (CRHQ)',
+                'Réseau hydrographique (CRHQ)',
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -130,7 +130,21 @@ class IndiceF5(QgsProcessingAlgorithm):
         return self.tr('iqm')
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F5 de l'IQM (sinuosité)")
+        return self.tr(
+            "Calcule de l'indice F5 afin d'évaluer la largeur et la continuité longitudinale de la bande riveraine fonctionnelle de part et d’autre du lit mineur à l’intérieur du corridor fluvial.\n La bande riveraine fonctionnelle consiste à la portion végétale ligneuse dont la hauteur moyenne au-dessus de 1 m est susceptible de contribuer à l’apport en bois. La continuité de la végétation est évaluée par la distance longitudinale relative en contact avec une bande riveraine d’une largeur donnée. La qualité morphologique du segment varie en fonction de la largeur de la bande riveraine (pour une largeur prédéterminée de 50, 30 ou 15 m à partir de la limite du lit mineur) et la continuité à l’intérieur du segment qui s’exprime en pourcentage (%). Dans le cas de la présence de plusieurs chenaux (p.ex. style divagant ou anabranche), les îlots végétalisés sont comptabilisés dans le calcul de la largeur de bande riveraine.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Bande riveraine : Vectoriel (polygones)\n" \
+            "-> Données vectorielles surfacique des peuplements écoforestiers pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Carte écoforestière à jour, [Jeu de données], dans Données Québec.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie :  Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F5 calculé pour chaque UEA."
+        )
 
 
 def pointsAlongLines(feature, source, context, feedback=None, output=None):

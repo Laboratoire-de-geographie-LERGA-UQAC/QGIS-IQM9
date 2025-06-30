@@ -27,8 +27,8 @@ class IndiceF1(QgsProcessingAlgorithm):
     FID = "Id"
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrologique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
-        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures filtrées (sortant de Filter structures; MTQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrographique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures filtrées (sortant de Filter structures; MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
 
     def processAlgorithm(self, parameters, context, model_feedback):
@@ -103,8 +103,19 @@ class IndiceF1(QgsProcessingAlgorithm):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("""Calcule de l'indice F1, à partire de la base de donnée des structures issue de \n
-        https://www.donneesquebec.ca/recherche/dataset/structure#""")
+        return self.tr(
+            "Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment. Dans le cas d'un style fluvial à plusieurs chenaux (divagant, anabranche), une seule entrave est comptabilisée lorsque plusieurs structures sont localisées à la même distance amont-aval dans les divers chenaux.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Structures filtrées : Vectoriel (points)\n" \
+            "-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel) ayant été préalablement filtrées par le script Filter structures. Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F1 calculé pour chaque UEA."
+        )
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
     expression = QgsExpression(expression_str)

@@ -42,7 +42,7 @@ class IndiceF4(QgsProcessingAlgorithm):
     LTHRESH = 0
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef largeur (CRHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'Réseau hydrologique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'Réseau hydrographique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
@@ -167,4 +167,16 @@ class IndiceF4(QgsProcessingAlgorithm):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F4")
+        return self.tr(
+            "Calcule de l'indice F4 afin d'évaluer l’hétérogénéité naturelle des unités géomorphologiques liée à ces processus présents dans le lit mineur en mesurant la continuité dans la variabilité naturelle de la largeur du lit mineur.\n L'outil compare la largeur de deux points de référence ainsi que la distance entre eux. Une augmentation de plus de 10% indique une discontinuité dans la variation longitudinale naturelle.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F4 calculé pour chaque UEA."
+        )

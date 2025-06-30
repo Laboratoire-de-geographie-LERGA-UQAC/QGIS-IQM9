@@ -22,7 +22,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrologique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrographique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Barrages (CEHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
@@ -221,4 +221,18 @@ class IndiceA2(QgsProcessingAlgorithm):
 		return 'iqm'
 
 	def shortHelpString(self):
-		return self.tr("Clacule l'indice A2")
+		return self.tr(
+			"Calcule de l'indice A2 afin d'évaluer l’impact des barrages présents à l’amont du segment sur les processus hydrogéomorphologiques en aval en fonction de l’aire d’alimentation affectée.\n Les barrages localisés sur l’ensemble du réseau hydrographique à l’amont du segment analysé sont considérés dans le calcul de l’aire de drainage.\n" \
+			"Paramètres\n" \
+			"----------\n" \
+			"Réseau hydrographique : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"WBT D8 Pointer: Matriciel\n" \
+			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+			"Barrages : Vectoriel (point)\n" \
+			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+			"Retourne\n" \
+			"----------\n" \
+			"Couche de sortie : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique du bassin versant avec le score de l'indice A2 calculé pour chaque UEA."
+		)

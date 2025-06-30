@@ -33,7 +33,7 @@ class calculerIc(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
-                self.tr('Réseau hydrologique (CRHQ)'),
+                self.tr('Réseau hydrographique (CRHQ)'),
                 [QgsProcessing.TypeVectorAnyGeometry]
             )
         )
@@ -157,4 +157,14 @@ class calculerIc(QgsProcessingAlgorithm):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice A4 de l'IQM (sinuosité)")
+        return self.tr(
+            "Calcule de l'indice A4 afin d'évaluer le niveau d’altération par l’entremise d’un indice de complexité du tracé fluvial.\n L'indice de complexité du tracé fluvial correspond à l'indice de sinuosité moyen de l’ensemble des chenaux à l’intérieur du segment. La somme des indices de sinuosité est par la suite divisé par le nombre de chenaux pour obtenir l'indice de complexité. Ainsi, plus le segment possède un indice de complexité faible, plus grandes sont les probabilités que les profils longitudinaux et transversaux soient homogènes et que les conditions hydrogéomorphologiques naturelles aient été perturbées par des interventions de nature anthropique\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice A4 calculé pour chaque UEA."
+        )

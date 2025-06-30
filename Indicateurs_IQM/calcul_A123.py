@@ -50,9 +50,9 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.STREAM_NET, self.tr('Réseau hydrologique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.STREAM_NET, self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer(self.DAMS, self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer(self.STRUCTS, self.tr('Structures (MTQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer(self.STRUCTS, self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer(self.PTREFS, self.tr('PtRef largeur cours d\'eau (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
@@ -242,13 +242,34 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		return 'calculA123'
 
 	def displayName(self):
-		return 'Calcul A1 A2 A3'
+		return 'Calcul A1 A2 A3 et F1'
 
 	def group(self):
 		return 'IQM'
 
 	def groupId(self):
 		return 'IQM'
+
+	def shortHelpString(self):
+		return self.tr(
+			"Calcule les indices A1, A2, A3 et F1.\n Script appelé par le script de calcul automatique Calcul IQM. Voir les descriptions des indices individuels pour plus d'informations sur chacun.\n" \
+			"Paramètres\n" \
+			"----------\n" \
+			"WBT D8 Pointer: Matriciel\n" \
+			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+			"Utilisation du territoire : Matriciel\n" \
+			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"Réseau hydrographique : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Barrages : Vectoriel (point)\n" \
+			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+			"Structures : Vectoriel (points)\n" \
+			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel). Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+			"Retourne\n" \
+			"----------\n" \
+			"Couche de sortie : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique du bassin versant avec le score des indices A1, A2, A3 et F1 calculé pour chaque UEA."
+			)
 
 	def createInstance(self):
 		return NetworkWatershedFromDem()

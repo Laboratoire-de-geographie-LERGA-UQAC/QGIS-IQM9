@@ -5,6 +5,7 @@ Group :
 With QGIS : 33000
 """
 
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
     QgsProcessing,
     QgsProcessingUtils,
@@ -21,7 +22,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer('dem', 'MNT LiDAR (10 m)', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Réseau hydrologique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Réseau hydrographique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         #self.addParameter(QgsProcessingParameterRasterDestination('D8pointer', 'D8Pointer', createByDefault=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
@@ -88,13 +89,31 @@ class Compute_d8(QgsProcessingAlgorithm):
         return 'computed8'
 
     def displayName(self):
-        return 'Calcule pointeur D8'
+        return self.tr('Calcule pointeur D8')
 
     def group(self):
         return 'IQM_utils'
 
     def groupId(self):
         return 'iqmutils'
+
+    def shortHelpString(self):
+        return self.tr(
+            "Extrait une grille de pointeurs de flux pour le bassin versant donné à l'aide d'un modèle numérique de terrain\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "MNT LiDAR (10 m) : Matriciel\n" \
+            "-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "WBT D8 Pointer: Matriciel\n" \
+            "-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools)."
+        )
+
+    def tr(self, string):
+        return QCoreApplication.translate('Processing', string)
 
     def createInstance(self):
         return Compute_d8()

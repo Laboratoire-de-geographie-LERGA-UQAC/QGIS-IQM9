@@ -32,7 +32,7 @@ class IndiceA3(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrologique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrographique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
         self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Barrages (CEHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
         self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoire (MELCCFP)', defaultValue=None))
@@ -311,7 +311,25 @@ class IndiceA3(QgsProcessingAlgorithm):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice A3")
+        return self.tr(
+            "Calcule de l'indice A3 afin d'évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non-confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial liée aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "WBT D8 Pointer: Matriciel\n" \
+            "-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+            "Barrages : Vectoriel (point)\n" \
+            "-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice A3 calculé pour chaque UEA."
+        )
 
 def ptrefs_mean_width(feature, source, PtRef_id, width_field='Largeur_mod', context=None, feedback=None):
     expr = QgsExpression(f"""
