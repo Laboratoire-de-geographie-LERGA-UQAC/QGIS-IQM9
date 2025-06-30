@@ -64,7 +64,7 @@ class Uea_ptref_join(QgsProcessingAlgorithm):
         return 'UEA_PtRef_join'
 
     def group(self):
-        return 'IQM_utils'
+        return self.tr('IQM utils')
 
     def groupId(self):
         return 'iqmutils'

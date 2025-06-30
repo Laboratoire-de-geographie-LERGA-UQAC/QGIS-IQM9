@@ -161,7 +161,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         return 'calculiqm'
 
     def displayName(self):
-        return 'Calcul IQM'
+        return self.tr('Calcul IQM')
 
     def group(self):
         return ''

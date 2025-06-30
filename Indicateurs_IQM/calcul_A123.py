@@ -245,7 +245,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		return 'Calcul A1 A2 A3 et F1'
 
 	def group(self):
-		return 'IQM'
+		return self.tr('IQM (multi-indice)')
 
 	def groupId(self):
 		return 'IQM'

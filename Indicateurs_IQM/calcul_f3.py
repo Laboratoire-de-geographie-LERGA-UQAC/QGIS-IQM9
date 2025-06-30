@@ -152,7 +152,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         return self.tr('Indice F3')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'

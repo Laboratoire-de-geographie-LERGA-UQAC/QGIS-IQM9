@@ -215,7 +215,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 		return self.tr('Indice A2')
 
 	def group(self):
-		return self.tr('IQM')
+		return self.tr('IQM (indice solo)')
 
 	def groupId(self):
 		return 'iqm'

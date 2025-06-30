@@ -92,7 +92,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
         )
 
     def group(self):
-        return 'IQM_utils'
+        return self.tr('IQM utils')
 
     def groupId(self):
         return 'iqmutils'

@@ -124,7 +124,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         return self.tr('Indice F5')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return self.tr('iqm')
