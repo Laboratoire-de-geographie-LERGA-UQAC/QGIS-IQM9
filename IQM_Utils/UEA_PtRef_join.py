@@ -35,7 +35,7 @@ class Uea_ptref_join(QgsProcessingAlgorithm):
             'INPUT': parameters['ptref'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['ExtraireParExpression'] = processing.run('native:extractbyexpression', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['ExtraireParExpression'] = processing.run('native:extractbyexpression', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -53,7 +53,7 @@ class Uea_ptref_join(QgsProcessingAlgorithm):
             'PREFIX': '',
             'OUTPUT': parameters['Ptref_largeur']
         }
-        outputs['JoinAttributesByFieldValue'] = processing.run('native:joinattributestable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['JoinAttributesByFieldValue'] = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)
         results['Ptref_largeur'] = outputs['JoinAttributesByFieldValue']['OUTPUT']
         return results
 

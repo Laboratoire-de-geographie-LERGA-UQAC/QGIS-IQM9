@@ -37,7 +37,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'INPUT': parameters['stream_network'],
             'OUTPUT': interpolated_points_output
         }
-        outputs['InterpolatePointOnLine'] = processing.run('native:interpolatepoint', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['InterpolatePointOnLine'] = processing.run('native:interpolatepoint', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -52,7 +52,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'streams': parameters['stream_network'],
             'output': rasterized_streams_output
         }
-        outputs['Rasterizestreams'] = processing.run('wbt:RasterizeStreams', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Rasterizestreams'] = processing.run('wbt:RasterizeStreams', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
@@ -65,7 +65,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'streams': outputs['Rasterizestreams']['output'],
             'output': parameters['snapped_outlets']
         }
-        outputs['Jensonsnappourpoints'] = processing.run('wbt:JensonSnapPourPoints', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Jensonsnappourpoints'] = processing.run('wbt:JensonSnapPourPoints', alg_params, context=context, feedback=None, is_child_algorithm=True)
         results['OUTPUT'] = outputs['Jensonsnappourpoints']['output']
         return results
 

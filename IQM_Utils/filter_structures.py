@@ -39,7 +39,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'INTERSECT_FIELDS_PREFIX': '',
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['LineIntersections'] = processing.run('native:lineintersections', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['LineIntersections'] = processing.run('native:lineintersections', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -51,7 +51,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'LAYERS': [parameters['structures'],outputs['LineIntersections']['OUTPUT']],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['MergedStructures'] = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['MergedStructures'] = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
@@ -68,7 +68,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'SEGMENTS': 5,
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['Buffer'] = processing.run('native:buffer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Buffer'] = processing.run('native:buffer', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
@@ -81,7 +81,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'SEPARATE_DISJOINT': True,
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['Dissolve'] = processing.run('native:dissolve', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Dissolve'] = processing.run('native:dissolve', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(4)
         if feedback.isCanceled():
@@ -93,7 +93,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'INPUT': outputs['Dissolve']['OUTPUT'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['Centroids'] = processing.run('native:centroids', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Centroids'] = processing.run('native:centroids', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(5)
         if feedback.isCanceled():
@@ -106,7 +106,7 @@ class AddStructures(QgsProcessingAlgorithm):
             'REFERENCE': parameters['cours_eau'],
             'OUTPUT': parameters['New_structures']
         }
-        outputs['ExtractWithinDistance'] = processing.run('native:extractwithindistance', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['ExtractWithinDistance'] = processing.run('native:extractwithindistance', alg_params, context=context, feedback=None, is_child_algorithm=True)
         results['New_structures'] = outputs['ExtractWithinDistance']['OUTPUT']
         return results
 

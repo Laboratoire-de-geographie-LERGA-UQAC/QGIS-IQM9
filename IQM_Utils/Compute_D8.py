@@ -38,7 +38,7 @@ class Compute_d8(QgsProcessingAlgorithm):
             'streams': parameters['stream_network'],
             'output': QgsProcessingUtils.generateTempFilename("fill_burn.tif")
         }
-        outputs['Fillburn'] = processing.run('wbt:FillBurn', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Fillburn'] = processing.run('wbt:FillBurn', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -54,7 +54,7 @@ class Compute_d8(QgsProcessingAlgorithm):
             'min_dist': True,
             'output': QgsProcessingUtils.generateTempFilename("breach_depression_lc.tif")
         }
-        outputs['Breachdepressionsleastcost'] = processing.run('wbt:BreachDepressionsLeastCost', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Breachdepressionsleastcost'] = processing.run('wbt:BreachDepressionsLeastCost', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
@@ -69,7 +69,7 @@ class Compute_d8(QgsProcessingAlgorithm):
             'max_length': None,
             'output': QgsProcessingUtils.generateTempFilename("breach_depression.tif")
         }
-        outputs['Breachdepressions'] = processing.run('wbt:BreachDepressions', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Breachdepressions'] = processing.run('wbt:BreachDepressions', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(3)
         if feedback.isCanceled():
@@ -81,7 +81,7 @@ class Compute_d8(QgsProcessingAlgorithm):
             'esri_pntr': False,
             'output': QgsProcessingUtils.generateTempFilename("d8_pointer.tif")#parameters['D8pointer']
         }
-        outputs['D8pointer'] = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['D8pointer'] = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=None, is_child_algorithm=True)
         results['D8pointer'] = outputs['D8pointer']['output']
         return results
 
