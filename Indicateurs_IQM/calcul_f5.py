@@ -20,7 +20,6 @@ from qgis.core import (
     QgsExpressionContext,
     QgsProcessingAlgorithm,
     QgsExpressionContextUtils,
-    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterFeatureSink,
     QgsProperty,
@@ -70,9 +69,6 @@ class IndiceF5(QgsProcessingAlgorithm):
 
     def processAlgorithm(self, parameters, context, model_feedback):
 
-        # Use a multi-step feedback
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
-
         # Define source stream net
         source = self.parameterAsSource(parameters, 'rivnet', context)
 
@@ -88,14 +84,17 @@ class IndiceF5(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
-        for segment in source.getFeatures():
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
 
-            if feedback.isCanceled():
+        for current, segment in enumerate(source.getFeatures()):
+
+            if model_feedback.isCanceled():
                 return {}
     
             # gen transects, and analyse intersection with 'Bande riv'
-            points_along_line = pointsAlongLines(segment, source, context, feedback)
-            normals = gen_split_normals(points_along_line, parameters, context, feedback)
+            points_along_line = pointsAlongLines(segment, source, context, feedback=None)
+            normals = gen_split_normals(points_along_line, parameters, context, feedback=None)
             br_widths_arr = get_bandriv_width_arr(normals, parameters)
 
             # Compute the IQM Score
@@ -107,6 +106,13 @@ class IndiceF5(QgsProcessingAlgorithm):
             )
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
 
 
         return {self.OUTPUT : dest_id}

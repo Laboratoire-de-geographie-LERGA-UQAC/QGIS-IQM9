@@ -91,9 +91,9 @@ class calculerIc(QgsProcessingAlgorithm):
         if True:
             # Compute the number of steps to display within the progress bar and
             # get features from source
-            total = 100.0 / source.featureCount() if source.featureCount() else 0
+            total_features = source.featureCount()
             features = [f for f in source.getFeatures()]
-            print(len(features))
+            #print(len(features))
             for current, feature in enumerate(features):
                 # Stop the algorithm if cancel button has been clicked
                 if feedback.isCanceled():
@@ -130,8 +130,12 @@ class calculerIc(QgsProcessingAlgorithm):
                 # Add a feature in the sink
                 sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-                # Update the progress bar
-                feedback.setProgress(int(current * total))
+                # Increments the progress bar
+                if total_features != 0:
+                    progress = int(100*(current/total_features))
+                else:
+                    progress = 0
+                feedback.setProgress(progress)
 
         return {self.OUTPUT: dest_id}
 

@@ -6,7 +6,6 @@ from qgis.core import (QgsProcessing,
 	QgsFeatureSink,
 	QgsVectorLayer,
 	QgsProcessingAlgorithm,
-	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterRasterLayer,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink,
@@ -35,9 +34,6 @@ class IndiceA1(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-		# overall progress through the model
-		feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
 		results = {}
 		outputs = {}
 
@@ -63,8 +59,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		)
 		results[self.OUTPUT] = dest_id
 
-		feedback.setCurrentStep(1)
-		if feedback.isCanceled():
+		if model_feedback.isCanceled():
 			return {}
 
 		# D8 Created #
@@ -89,7 +84,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 		# Extract specific vertex
 		alg_params = {
@@ -97,10 +92,9 @@ class IndiceA1(QgsProcessingAlgorithm):
 			'VERTICES': '-2',
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		outputs['ExtractSpecificVertex'] = processing.run('native:extractspecificvertices', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-		feedback.setCurrentStep(5)
-		if feedback.isCanceled():
+		if model_feedback.isCanceled():
 			return {}
 
 		############ LOOP GOES HERE ############
@@ -111,15 +105,17 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 
 		#for fid in list(fid_ids)[189:192]:
-		feature_count = source.featureCount()
+		# Gets the number of features to iterate over for the progress bar
+		total_features = source.featureCount()
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
-		for feature in source.getFeatures():
+		for current, feature in enumerate(source.getFeatures()):
+
 			fid = feature[fid_idx]
 			# For each pour point
 			# Compute the percentage of forests and agriculture lands in the draining area
 			# Then compute index_A1 and add it in a new field to the river network
-			if feedback.isCanceled():
+			if model_feedback.isCanceled():
 				return {}
 
 			# Extract By Attribute
@@ -130,7 +126,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 			'VALUE': str(fid),
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['single_point']= processing.run('native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['single_point']= processing.run('native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Watershed
 			alg_params = {
@@ -139,8 +135,8 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'pour_pts': outputs['single_point']['OUTPUT'],
 				'output': tmp['watershed'].name
 			}
-			outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-			print(outputs['Watershed']['output'])
+			outputs['Watershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
+			#print(outputs['Watershed']['output'])
 
 
 			# rlayer = QgsRasterLayer(outputs['Watershed']['output'], 'watershed')
@@ -155,7 +151,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'INPUT': outputs['Watershed']['output'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['PolygonizeRasterToVector'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 			# QgsProject.instance().addMapLayer()
 
 			# Drain_area Land_use
@@ -179,7 +175,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 				#'OUTPUT':   f"tmp/aire_drainage_landuse_allclasses/landuse_drainage_{fid}.tif" ,
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Landuse unique values report
 			tmp['table'] = Ntf(suffix="table")
@@ -188,7 +184,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 				'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
 				'OUTPUT_TABLE': tmp['table'].name
 			}
-			outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Create layers from source/path
 			watershed_poly = QgsVectorLayer(outputs['PolygonizeRasterToVector']['OUTPUT'], 'poly', 'ogr')
@@ -231,8 +227,15 @@ class IndiceA1(QgsProcessingAlgorithm):
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-			print(f'{fid}/{feature_count}')
-			print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
+			#print(f'{fid}/{feature_count}')
+			#print(f'{tot_area=}\n{forest_area=}\n{agri_area=}\n{indiceA1=}\n\n')
+
+			# Increments the progress bar
+			if total_features != 0:
+				progress = int(100*(current/total_features))
+			else:
+				progress = 0
+			model_feedback.setProgress(progress)
 
 		# Clear temporary files
 		for tempfile in tmp.values():

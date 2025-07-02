@@ -12,7 +12,6 @@ from qgis.core import (QgsProcessing,
                        QgsExpressionContext,
                        QgsExpressionContextUtils,
                        QgsVectorLayer,
-                       QgsProcessingMultiStepFeedback,
                        QgsProject,
                        QgsFeatureRequest,
                        QgsSpatialIndex
@@ -32,7 +31,6 @@ class IndiceF1(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
 
     def processAlgorithm(self, parameters, context, model_feedback):
-        feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
         outputs = {}
         source = self.parameterAsSource(
             parameters,
@@ -61,12 +59,14 @@ class IndiceF1(QgsProcessingAlgorithm):
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
 
         # Send some information to the user
-        feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
+        model_feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
 
-        for feature in source.getFeatures():
+        for current, feature in enumerate(source.getFeatures()):
 
-            if feedback.isCanceled():
-                break
+            if model_feedback.isCanceled():
+                return {}
 
             buffer = gen_buffer(feature, source, context=context)
             struct_count = count_structures(buffer, parameters)
@@ -76,6 +76,13 @@ class IndiceF1(QgsProcessingAlgorithm):
             feature.setAttributes(
                 feature.attributes() + [indiceF1]
             )
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
 
             # Add a feature in the sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
@@ -140,7 +147,7 @@ def count_structures(buffer, parameters):
     """
     feature = next(buffer.getFeatures())
     count = evaluate_expression(expr_str, buffer, feature=feature)
-    print(count)
+    #print(count)
     return count
 
 def computeF1(feature, struct_count):

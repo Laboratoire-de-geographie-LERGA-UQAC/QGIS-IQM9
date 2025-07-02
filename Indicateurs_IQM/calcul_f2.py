@@ -34,7 +34,6 @@ from qgis.core import (
     QgsProcessingParameterRasterLayer,
     QgsCoordinateReferenceSystem,
     QgsProcessingAlgorithm,
-    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSink,
@@ -121,10 +120,8 @@ class IndiceF2(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-        # overall progress through the model
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
+        if model_feedback.isCanceled():
+            return {}
 
         # Define source stream net
         source = self.parameterAsVectorLayer(parameters, 'rivnet', context)
@@ -148,12 +145,13 @@ class IndiceF2(QgsProcessingAlgorithm):
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context, feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context, feedback=None)
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
         # feature count for feedback
-        feature_count = source.featureCount()
+        total_features = source.featureCount()
+
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
 
         expContext = QgsExpressionContext()
@@ -162,18 +160,18 @@ class IndiceF2(QgsProcessingAlgorithm):
         parameters['expContext'] = expContext
 
         # Itteration over all river network features
-        for segment in source.getFeatures():
+        for current, segment in enumerate(source.getFeatures()):
 
-            if feedback.isCanceled():
-                break
+            if model_feedback.isCanceled():
+                return {}
 
             logging.info(f"\n\nworking on : {segment[fid_idx]=}, {segment.id()=}")
 
-            points = pointsAlongGeometry(segment, source, context=context, feedback=feedback, output=QgsProcessingUtils.generateTempFilename("points.shp"))
-            segment_mean_width = get_segment_mean_width(segment, source, parameters, context=context, feedback=feedback)
+            points = pointsAlongGeometry(segment, source, context=context, feedback=None, output=QgsProcessingUtils.generateTempFilename("points.shp"))
+            segment_mean_width = get_segment_mean_width(segment, source, parameters, context=context, feedback=None)
             logging.info(f"compute {segment_mean_width=}")
 
-            normals = gen_split_normals(points, parameters, width=segment_mean_width,context=context, feedback=feedback)
+            normals = gen_split_normals(points, parameters, width=segment_mean_width,context=context, feedback=None)
             logging.info(f"normals created")
 
             parameters['expContext'].appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(normals))
@@ -191,8 +189,15 @@ class IndiceF2(QgsProcessingAlgorithm):
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
             logging.info(f"{indiceF2=}")
-            logging.info(f"{segment.id()} / {feature_count}\n\n")
+            logging.info(f"{segment.id()} / {total_features}\n\n")
             logging.info(f"segment{segment[fid_idx]} done !")
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
 
         return {self.OUTPUT : dest_id}
 

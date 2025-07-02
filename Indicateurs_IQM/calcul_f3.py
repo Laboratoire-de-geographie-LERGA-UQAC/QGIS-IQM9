@@ -30,7 +30,6 @@ from qgis.core import (
     QgsExpressionContextUtils,
     QgsProcessingAlgorithm,
     QgsCoordinateReferenceSystem,
-    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSink,
@@ -88,10 +87,8 @@ class IndiceF3(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-        # Use a multi-step feedback
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
-
+        if model_feedback.isCanceled():
+            return {}
         # Define source stream net
         source = self.parameterAsSource(parameters, 'rivnet', context)
 
@@ -112,20 +109,21 @@ class IndiceF3(QgsProcessingAlgorithm):
         anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'anthropic_layers', context)]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=None)
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
 
         # feature count for feedback
-        feature_count = source.featureCount()
-        for segment in source.getFeatures():
+        total_features = source.featureCount()
 
-            if feedback.isCanceled():
+        for current, segment in enumerate(source.getFeatures()):
+
+            if model_feedback.isCanceled():
                 return {}
             
             # Split segment into 100 sided buffers
-            buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
+            buffer_layer = split_buffer(segment, source, parameters, context, feedback=None)
             intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
 
             # Compute the IQM Score
@@ -136,6 +134,13 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
 
         return {self.OUTPUT : dest_id}
 

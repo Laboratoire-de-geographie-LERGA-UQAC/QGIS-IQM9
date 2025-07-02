@@ -7,7 +7,6 @@ from qgis.core import (QgsProcessing,
 					   QgsVectorLayer,
 					   )
 from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
 from qgis.core import QgsProcessingParameterRasterLayer
 from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterVectorLayer
@@ -31,7 +30,6 @@ class IndiceA2(QgsProcessingAlgorithm):
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 
-		feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
 		outputs = {}
 
 		# Create temporary file locations
@@ -57,6 +55,9 @@ class IndiceA2(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
+		if model_feedback.isCanceled():
+			return {}
+
 		# Snap dams to river network
 		alg_params = {
 			'BEHAVIOR': 1,  # Prefer closest point, insert extra vertices where required
@@ -65,7 +66,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 			'TOLERANCE': 75,
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 
 		# Extract specific vertex
@@ -76,20 +77,19 @@ class IndiceA2(QgsProcessingAlgorithm):
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
 		outputs['ExtractSpecificVertex'] = processing.run(
-			'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			'native:extractspecificvertices', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-		feedback.setCurrentStep(5)
-		if feedback.isCanceled():
+		if model_feedback.isCanceled():
 			return {}
 
-		feature_count = source.featureCount()
+		total_features = source.featureCount()
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for feature in source.getFeatures():
 			fid = feature[fid_idx]
 			# For each segment
 			# Compute waterhed
-			if feedback.isCanceled():
+			if model_feedback.isCanceled():
 				return {}
 
 			# Extract By Attribute
@@ -100,9 +100,11 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'VALUE': str(fid),
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-
 			outputs['single_point'] = processing.run(
-				'native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+			if model_feedback.isCanceled():
+				return {}
 
 			# Watershed
 			alg_params = {
@@ -112,7 +114,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'output': tmp['mainWatershed'].name
 			}
 			outputs['mainWatershed'] = processing.run(
-				'wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Polygonize watershed (raster to vector)
 			alg_params = {
@@ -124,7 +126,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['mainWatershedPoly'] = processing.run(
-				'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Compute watershed total area
 			mainWatershedPoly = QgsVectorLayer(
@@ -139,7 +141,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'PREDICATE': [6],  # are within
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['ClipDams'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['ClipDams'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			 # Watershed
 			alg_params = {
@@ -148,10 +150,9 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'pour_pts': outputs['ClipDams']['OUTPUT'],
 				'output': tmp['subWatershed'].name
 			}
-			outputs['subWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['subWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-			feedback.setCurrentStep(10)
-			if feedback.isCanceled():
+			if model_feedback.isCanceled():
 				return {}
 
 			# Vectorized Sub-watersheds
@@ -163,7 +164,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'INPUT': outputs['subWatershed']['output'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['subWatershedPoly'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['subWatershedPoly'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Compute watershed total area
 			subWatershedPoly = QgsVectorLayer(
@@ -194,7 +195,15 @@ class IndiceA2(QgsProcessingAlgorithm):
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-			print(f'{fid}/{feature_count}')
+			#print(f'{fid}/{total_features}')
+
+			# Increments the progress bar
+			if total_features != 0:
+				progress = int(100*(current/total_features))
+			else:
+				progress = 0
+			model_feedback.setProgress(progress)
+
 
 		# Clear temporary files
 		for tempfile in tmp.values():

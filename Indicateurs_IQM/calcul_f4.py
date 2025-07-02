@@ -25,7 +25,7 @@ from qgis.core import (
     QgsExpressionContext,
     QgsExpressionContextUtils,
     QgsProcessingAlgorithm,
-    QgsProcessingMultiStepFeedback,
+    QgsProcessingFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterFeatureSink,
     QgsProperty,
@@ -59,7 +59,7 @@ class IndiceF4(QgsProcessingAlgorithm):
                 'START_OFFSET': 0,
                 'OUTPUT': QgsProcessingUtils.generateTempFilename("points.shp"),
             }
-            output = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+            output = processing.run('native:pointsalonglines', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
             return QgsVectorLayer(output, 'points', 'ogr')
 
         def evaluate_expression(expression_str, vlayer, feature=None ):
@@ -101,9 +101,6 @@ class IndiceF4(QgsProcessingAlgorithm):
                 return 2
             return 3
 
-        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-        # overall progress through the model
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
         results = {}
 
         # Define source stream net
@@ -124,9 +121,12 @@ class IndiceF4(QgsProcessingAlgorithm):
         )
         results[self.OUTPUT] = dest_id
 
-        for segment in source.getFeatures():
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
 
-            if feedback.isCanceled():
+        for current, segment in enumerate(source.getFeatures()):
+            
+            if model_feedback.isCanceled():
                 return {}
     
             #gen points and normals along geometry
@@ -145,6 +145,12 @@ class IndiceF4(QgsProcessingAlgorithm):
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
 
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
 
         return results
 
