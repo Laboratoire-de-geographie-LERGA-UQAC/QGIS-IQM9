@@ -17,10 +17,10 @@ import processing
 class Uea_ptref_join(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref', 'PtRef', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_mod_lotique', 'PtRef_Mod_Lotique', types=[QgsProcessing.TypeVector], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('riv_net', 'Réseau hydrographique (CRHQ)', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Ptref_largeur', 'Couche de sortie (PtRef largeur [CRHQ])', optional=True, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue='TEMPORARY_OUTPUT'))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref', self.tr('PtRef'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref_mod_lotique', self.tr('PtRef_Mod_Lotique'), types=[QgsProcessing.TypeVector], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('riv_net', self.tr('Réseau hydrographique (CRHQ)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Ptref_largeur', self.tr('Couche de sortie (PtRef largeur [CRHQ])'), optional=True, type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue='TEMPORARY_OUTPUT'))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
