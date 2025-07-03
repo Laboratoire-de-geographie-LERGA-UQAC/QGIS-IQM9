@@ -4,7 +4,7 @@ Name : Extract And Snap Outlets
 Group :
 With QGIS : 33000
 """
-
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -19,9 +19,9 @@ import processing
 class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', 'Stream Network', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorDestination('snapped_outlets', 'Snapped_outlets', type=QgsProcessing.TypeVectorPoint, createByDefault=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorDestination('snapped_outlets', self.tr('Couche de sortie (Snapped_outlets)'), type=QgsProcessing.TypeVectorPoint, createByDefault=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -37,7 +37,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'INPUT': parameters['stream_network'],
             'OUTPUT': interpolated_points_output
         }
-        outputs['InterpolatePointOnLine'] = processing.run('native:interpolatepoint', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['InterpolatePointOnLine'] = processing.run('native:interpolatepoint', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(1)
         if feedback.isCanceled():
@@ -52,7 +52,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'streams': parameters['stream_network'],
             'output': rasterized_streams_output
         }
-        outputs['Rasterizestreams'] = processing.run('wbt:RasterizeStreams', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Rasterizestreams'] = processing.run('wbt:RasterizeStreams', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         feedback.setCurrentStep(2)
         if feedback.isCanceled():
@@ -65,7 +65,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
             'streams': outputs['Rasterizestreams']['output'],
             'output': parameters['snapped_outlets']
         }
-        outputs['Jensonsnappourpoints'] = processing.run('wbt:JensonSnapPourPoints', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['Jensonsnappourpoints'] = processing.run('wbt:JensonSnapPourPoints', alg_params, context=context, feedback=None, is_child_algorithm=True)
         results['OUTPUT'] = outputs['Jensonsnappourpoints']['output']
         return results
 
@@ -73,13 +73,32 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
         return 'extractandsnapoutlets'
 
     def displayName(self):
-        return 'Extraction And Snap Outlets'
+        return self.tr('Extraction And Snap Outlets')
+
+
+    def shortHelpString(self):
+        return self.tr(
+            "Extrait et met ensemble les embouchures des segments.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "MNT LiDAR (10 m) : Matriciel\n" \
+            "-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie (Snapped_outlets) : Vectoriel (points)\n" \
+            "-> Couche vectorielle de données ponctuelles de l'embouchure de chaque UEA"
+        )
 
     def group(self):
-        return 'IQM_utils'
+        return self.tr('IQM utils')
 
     def groupId(self):
         return 'iqmutils'
+
+    def tr(self, string):
+        return QCoreApplication.translate('Processing', string)
 
     def createInstance(self):
         return ExtractAndSnapOutlets()

@@ -33,7 +33,7 @@ class calculerIc(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSource(
                 self.INPUT,
-                self.tr('Input layer'),
+                self.tr('Réseau hydrographique (CRHQ)'),
                 [QgsProcessing.TypeVectorAnyGeometry]
             )
         )
@@ -44,7 +44,7 @@ class calculerIc(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.tr('Output layer')
+                self.tr('Couche de sortie')
             )
         )
 
@@ -91,9 +91,11 @@ class calculerIc(QgsProcessingAlgorithm):
         if True:
             # Compute the number of steps to display within the progress bar and
             # get features from source
-            total = 100.0 / source.featureCount() if source.featureCount() else 0
+            total_features = source.featureCount()
+            feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
             features = [f for f in source.getFeatures()]
-            print(len(features))
+            #print(len(features))
             for current, feature in enumerate(features):
                 # Stop the algorithm if cancel button has been clicked
                 if feedback.isCanceled():
@@ -130,8 +132,16 @@ class calculerIc(QgsProcessingAlgorithm):
                 # Add a feature in the sink
                 sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-                # Update the progress bar
-                feedback.setProgress(int(current * total))
+                # Increments the progress bar
+                if total_features != 0:
+                    progress = int(100*(current/total_features))
+                else:
+                    progress = 0
+                feedback.setProgress(progress)
+                feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT: dest_id}
 
@@ -151,10 +161,20 @@ class calculerIc(QgsProcessingAlgorithm):
         return self.tr('Indice A4')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice A4 de l'IQM (sinuosité)")
+        return self.tr(
+            "Calcule de l'indice A4 afin d'évaluer le niveau d’altération par l’entremise d’un indice de complexité du tracé fluvial.\n L'indice de complexité du tracé fluvial correspond à l'indice de sinuosité moyen de l’ensemble des chenaux à l’intérieur du segment. La somme des indices de sinuosité est par la suite divisé par le nombre de chenaux pour obtenir l'indice de complexité. Ainsi, plus le segment possède un indice de complexité faible, plus grandes sont les probabilités que les profils longitudinaux et transversaux soient homogènes et que les conditions hydrogéomorphologiques naturelles aient été perturbées par des interventions de nature anthropique\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice A4 calculé pour chaque UEA."
+        )
