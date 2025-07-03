@@ -12,7 +12,6 @@ from qgis.core import (QgsProcessing,
                        QgsExpressionContext,
                        QgsExpressionContextUtils,
                        QgsVectorLayer,
-                       QgsProcessingMultiStepFeedback,
                        QgsProject,
                        QgsFeatureRequest,
                        QgsSpatialIndex
@@ -27,12 +26,11 @@ class IndiceF1(QgsProcessingAlgorithm):
     FID = "Id"
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Reseau hydrologique'), [QgsProcessing.TypeVectorLine]))
-        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output layer')))
+        self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrographique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures filtrées (sortant de Filter structures; MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
 
     def processAlgorithm(self, parameters, context, model_feedback):
-        feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
         outputs = {}
         source = self.parameterAsSource(
             parameters,
@@ -61,12 +59,15 @@ class IndiceF1(QgsProcessingAlgorithm):
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
 
         # Send some information to the user
-        feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
+        model_feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
-        for feature in source.getFeatures():
+        for current, feature in enumerate(source.getFeatures()):
 
-            if feedback.isCanceled():
-                break
+            if model_feedback.isCanceled():
+                return {}
 
             buffer = gen_buffer(feature, source, context=context)
             struct_count = count_structures(buffer, parameters)
@@ -77,9 +78,19 @@ class IndiceF1(QgsProcessingAlgorithm):
                 feature.attributes() + [indiceF1]
             )
 
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
             # Add a feature in the sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT: dest_id}
 
@@ -97,14 +108,25 @@ class IndiceF1(QgsProcessingAlgorithm):
         return self.tr('Indice F1')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("""Calcule de l'indice F1, à partire de la base de donnée des structures issue de \n
-        https://www.donneesquebec.ca/recherche/dataset/structure#""")
+        return self.tr(
+            "Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment. Dans le cas d'un style fluvial à plusieurs chenaux (divagant, anabranche), une seule entrave est comptabilisée lorsque plusieurs structures sont localisées à la même distance amont-aval dans les divers chenaux.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Structures filtrées : Vectoriel (points)\n" \
+            "-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel) ayant été préalablement filtrées par le script Filter structures. Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F1 calculé pour chaque UEA."
+        )
 
 def evaluate_expression(expression_str, vlayer, feature=None ):
     expression = QgsExpression(expression_str)
@@ -129,7 +151,7 @@ def count_structures(buffer, parameters):
     """
     feature = next(buffer.getFeatures())
     count = evaluate_expression(expr_str, buffer, feature=feature)
-    print(count)
+    #print(count)
     return count
 
 def computeF1(feature, struct_count):

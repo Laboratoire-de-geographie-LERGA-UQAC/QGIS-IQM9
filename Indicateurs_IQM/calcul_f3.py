@@ -30,7 +30,6 @@ from qgis.core import (
     QgsExpressionContextUtils,
     QgsProcessingAlgorithm,
     QgsCoordinateReferenceSystem,
-    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSink,
@@ -47,15 +46,15 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'ptref_widths',
-                'PtRef_widths',
+                self.tr('PtRef largeur (CRHQ)'),
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
         )
         self.addParameter(
             QgsProcessingParameterMultipleLayers(
-                'antropic_layers',
-                'Antropic layers',
+                'anthropic_layers',
+                self.tr('Réseau routier (OSM)'),
                 optional=True,
                 layerType=QgsProcessing.TypeVector,
                 defaultValue=None,
@@ -64,7 +63,7 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'rivnet',
-                'RivNet',
+                self.tr('Réseau hydrographique (CRHQ)'),
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -72,14 +71,14 @@ class IndiceF3(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 'landuse',
-                'Utilisation du territoir',
+                self.tr('Utilisation du territoire (MELCCFP)'),
                 defaultValue=None
             )
         )
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.OUTPUT,
+                self.tr('Couche de sortie'),
                 type=QgsProcessing.TypeVectorAnyGeometry,
                 createByDefault=True,
                 supportsAppend=True,
@@ -88,10 +87,8 @@ class IndiceF3(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-        # Use a multi-step feedback
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
-
+        if model_feedback.isCanceled():
+            return {}
         # Define source stream net
         source = self.parameterAsSource(parameters, 'rivnet', context)
 
@@ -109,23 +106,25 @@ class IndiceF3(QgsProcessingAlgorithm):
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
         assert fid_idx >= 0, "field_index not found"
-        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'antropic_layers', context)]
+        anthropic_layers = [layer.id() for layer in self.parameterAsLayerList(parameters, 'anthropic_layers', context)]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context=context, feedback=None)
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
 
         # feature count for feedback
-        feature_count = source.featureCount()
-        for segment in source.getFeatures():
+        total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
-            if feedback.isCanceled():
+        for current, segment in enumerate(source.getFeatures()):
+
+            if model_feedback.isCanceled():
                 return {}
             
             # Split segment into 100 sided buffers
-            buffer_layer = split_buffer(segment, source, parameters, context, feedback=feedback)
+            buffer_layer = split_buffer(segment, source, parameters, context, feedback=None)
             intersect_array = get_intersect_arr(buffer_layer, anthropic_layers, parameters, context)
 
             # Compute the IQM Score
@@ -136,6 +135,17 @@ class IndiceF3(QgsProcessingAlgorithm):
 
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT : dest_id}
 
@@ -152,13 +162,29 @@ class IndiceF3(QgsProcessingAlgorithm):
         return self.tr('Indice F3')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F3")
+        return self.tr(
+            "Calcule de l'indice F3 afin d'évaluer la capacité d'érosion du cours d'eau en évaluant la continuité de l'espace de mobilité sur l'ensemble du segment.\n L'outil calcul donc la continuité amont-aval en prenant compte de la somme des distances longitudinales dénuées de discontinuités de part et d'autre du chenal en fonction de la distance totale du segment. La continuité longitudinale de l'espace de mobilité s'exprime par la distance longitudinale relative (%). Les discontinuités utilisées par l'outil sont les infrastructures de transport (routes, voies ferrées) ainsi que les ponts et ponceaux présents à l'intérieur de l'espace de mobilité d'une largeur de 15 m. Dans le cas d'un cours d'eau anabranche ou divagant, la continuité longitudinale est évaluée en calculant la somme des distances sans discontinuités pour chaque chenal en fonction de la distance totale de tous les chenaux.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau routier : Vectoriel (lignes)\n" \
+            "-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F3 calculé pour chaque UEA."
+        )
 
 
 def evaluate_expression(expression_str, vlayer, feature=None):

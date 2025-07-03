@@ -1,5 +1,6 @@
 
 from tempfile import NamedTemporaryFile as Ntf
+import os
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
 					   QgsField,
@@ -7,7 +8,6 @@ from qgis.core import (QgsProcessing,
 					   QgsVectorLayer,
 					   )
 from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
 from qgis.core import QgsProcessingParameterRasterLayer
 from qgis.core import QgsProcessingParameterNumber
 from qgis.core import QgsProcessingParameterVectorLayer
@@ -22,22 +22,21 @@ class IndiceA2(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Cours d'eau", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8', defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr("Réseau hydrographique (CRHQ)"), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 
-		feedback = QgsProcessingMultiStepFeedback(11, model_feedback)
 		outputs = {}
 
 		# Create temporary file locations
 		tmp = {
-			'mainWatershed' : Ntf(suffix="watershed.tif"),
-			'subWatershed' : Ntf(suffix="sub-watershed.tif"),
+			'mainWatershed' : Ntf(suffix="watershed.tif", delete=False),
+			'subWatershed' : Ntf(suffix="sub-watershed.tif", delete=False),
 		}
 
 		# Define source stream net
@@ -57,6 +56,9 @@ class IndiceA2(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
+		if model_feedback.isCanceled():
+			return {}
+
 		# Snap dams to river network
 		alg_params = {
 			'BEHAVIOR': 1,  # Prefer closest point, insert extra vertices where required
@@ -65,7 +67,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 			'TOLERANCE': 75,
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 
 		# Extract specific vertex
@@ -76,20 +78,22 @@ class IndiceA2(QgsProcessingAlgorithm):
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
 		outputs['ExtractSpecificVertex'] = processing.run(
-			'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			'native:extractspecificvertices', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-		feedback.setCurrentStep(5)
-		if feedback.isCanceled():
+		if model_feedback.isCanceled():
 			return {}
 
-		feature_count = source.featureCount()
+		# Gets the number of features to iterate over for the progress bar
+		total_features = source.featureCount()
+		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for feature in source.getFeatures():
 			fid = feature[fid_idx]
 			# For each segment
 			# Compute waterhed
-			if feedback.isCanceled():
+			if model_feedback.isCanceled():
 				return {}
 
 			# Extract By Attribute
@@ -100,9 +104,11 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'VALUE': str(fid),
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-
 			outputs['single_point'] = processing.run(
-				'native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+			if model_feedback.isCanceled():
+				return {}
 
 			# Watershed
 			alg_params = {
@@ -112,7 +118,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'output': tmp['mainWatershed'].name
 			}
 			outputs['mainWatershed'] = processing.run(
-				'wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Polygonize watershed (raster to vector)
 			alg_params = {
@@ -124,7 +130,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['mainWatershedPoly'] = processing.run(
-				'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+				'gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Compute watershed total area
 			mainWatershedPoly = QgsVectorLayer(
@@ -139,7 +145,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'PREDICATE': [6],  # are within
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['ClipDams'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['ClipDams'] = processing.run('native:extractbylocation', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			 # Watershed
 			alg_params = {
@@ -148,10 +154,9 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'pour_pts': outputs['ClipDams']['OUTPUT'],
 				'output': tmp['subWatershed'].name
 			}
-			outputs['subWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['subWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-			feedback.setCurrentStep(10)
-			if feedback.isCanceled():
+			if model_feedback.isCanceled():
 				return {}
 
 			# Vectorized Sub-watersheds
@@ -163,7 +168,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 				'INPUT': outputs['subWatershed']['output'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
-			outputs['subWatershedPoly'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			outputs['subWatershedPoly'] = processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 			# Compute watershed total area
 			subWatershedPoly = QgsVectorLayer(
@@ -194,11 +199,24 @@ class IndiceA2(QgsProcessingAlgorithm):
 			# Add modifed feature to sink
 			sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-			print(f'{fid}/{feature_count}')
+			#print(f'{fid}/{total_features}')
+
+			# Increments the progress bar
+			if total_features != 0:
+				progress = int(100*(current/total_features))
+			else:
+				progress = 0
+			model_feedback.setProgress(progress)
+			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
 
 		# Clear temporary files
 		for tempfile in tmp.values():
 			tempfile.close()
+			os.remove(tempfile.name)
+
+		# Ending message
+		model_feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
 
 		return {self.OUTPUT: dest_id}
 
@@ -215,10 +233,24 @@ class IndiceA2(QgsProcessingAlgorithm):
 		return self.tr('Indice A2')
 
 	def group(self):
-		return self.tr('IQM')
+		return self.tr('IQM (indice solo)')
 
 	def groupId(self):
 		return 'iqm'
 
 	def shortHelpString(self):
-		return self.tr("Clacule l'indice A2")
+		return self.tr(
+			"Calcule de l'indice A2 afin d'évaluer l’impact des barrages présents à l’amont du segment sur les processus hydrogéomorphologiques en aval en fonction de l’aire d’alimentation affectée.\n Les barrages localisés sur l’ensemble du réseau hydrographique à l’amont du segment analysé sont considérés dans le calcul de l’aire de drainage.\n" \
+			"Paramètres\n" \
+			"----------\n" \
+			"Réseau hydrographique : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"WBT D8 Pointer: Matriciel\n" \
+			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+			"Barrages : Vectoriel (point)\n" \
+			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+			"Retourne\n" \
+			"----------\n" \
+			"Couche de sortie : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique du bassin versant avec le score de l'indice A2 calculé pour chaque UEA."
+		)
