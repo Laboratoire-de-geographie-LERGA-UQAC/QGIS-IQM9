@@ -5,6 +5,7 @@ Group :
 With QGIS : 33000
 """
 
+from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import QgsProcessing
 from qgis.core import QgsProcessingAlgorithm
 from qgis.core import QgsProcessingMultiStepFeedback
@@ -17,15 +18,15 @@ import processing
 class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', 'Bande_riv', types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('barrages', 'Barrages', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', 'Cours_eau', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('dem', 'DEM', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', 'PtRef - Largeur', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('routes', 'Routes', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('structures', 'Structures', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', 'IQM', type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', self.tr('Bande riveraine (peuplement forestier; MELCCFP)'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('barrages', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -88,7 +89,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
         # Indice F2
         alg_params = {
-            'antropic_layers': parameters['routes'],
+            'anthropic_layers': parameters['routes'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptref_widths': parameters['ptref__largeur'],
             'rivnet': outputs['IndiceA4']['OUTPUT'],
@@ -102,7 +103,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
         # Indice F3
         alg_params = {
-            'antropic_layers': parameters['routes'],
+            'anthropic_layers': parameters['routes'],
             'landuse': parameters['utilisation_du_territoir'],
             'ptref_widths': parameters['ptref__largeur'],
             'rivnet': outputs['IndiceF2']['OUTPUT'],
@@ -154,19 +155,53 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         }
         outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
         results['Iqm'] = outputs['FieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(9)
+        feedback.setProgressText(self.tr('\tProcessus terminé !'))
+
         return results
 
     def name(self):
         return 'calculiqm'
 
     def displayName(self):
-        return 'Calcul IQM'
+        return self.tr('Calcul IQM')
 
     def group(self):
         return ''
 
     def groupId(self):
         return ''
+
+    def shortHelpString(self):
+        return self.tr(
+            "Calcule les neufs indices de qualité morphologique (IQM) de l'IQM9 de manière automatisée\n Voir les descriptions des indices individuels pour plus d'informations sur chacun.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Bande riveraine : Vectoriel (polygones)\n" \
+            "-> Données vectorielles surfacique des peuplements écoforestiers pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Carte écoforestière à jour, [Jeu de données], dans Données Québec.\n" \
+            "Barrages : Vectoriel (point)\n" \
+            "-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "MNT LiDAR (10 m) : Matriciel\n" \
+            "-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau routier : Vectoriel (lignes)\n" \
+            "-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
+            "Structures : Vectoriel (points)\n" \
+            "-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel). Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec les scores de chaque indice de l'IQM9 calculés pour chaque UEA."
+        )
+
+    def tr(self, string):
+        return QCoreApplication.translate('Processing', string)
 
     def createInstance(self):
         return Renewed_compute_iqm()

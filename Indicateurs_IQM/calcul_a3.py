@@ -13,7 +13,6 @@ from qgis.core import (QgsProcessing,
                         QgsVectorLayer,
                         QgsFeatureRequest,
                         QgsProcessingAlgorithm,
-                        QgsProcessingMultiStepFeedback,
                         QgsProcessingParameterRasterLayer,
                         QgsProcessingParameterNumber,
                         QgsProcessingParameterVectorLayer,
@@ -33,17 +32,15 @@ class IndiceA3(QgsProcessingAlgorithm):
     OUTPUT = 'OUTPUT'
 
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Cours d'eau", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Dams', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', 'Utilisation du territoir', defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef_widths', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Layer'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr("Réseau hydrographique (CRHQ)"), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 
         outputs = {}
 
@@ -72,6 +69,8 @@ class IndiceA3(QgsProcessingAlgorithm):
             source.sourceCrs()
         )
 
+        if model_feedback.isCanceled():
+            return {}
 
         # Defin dams layer
         dams = self.parameterAsVectorLayer(parameters, 'dams', context)
@@ -99,7 +98,7 @@ class IndiceA3(QgsProcessingAlgorithm):
             'TABLE': table,
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
         # Snap dams to river network
         alg_params = {
@@ -109,10 +108,9 @@ class IndiceA3(QgsProcessingAlgorithm):
             'TOLERANCE': 75,
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
-        outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+        outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-        feedback.setCurrentStep(1)
-        if feedback.isCanceled():
+        if model_feedback.isCanceled():
             return {}
         # Extract specific vertex
         # TODO : try and remove is_child_algorithm
@@ -122,23 +120,25 @@ class IndiceA3(QgsProcessingAlgorithm):
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractSpecificVertex'] = processing.run(
-            'native:extractspecificvertices', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            'native:extractspecificvertices', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-        feedback.setCurrentStep(2)
-        if feedback.isCanceled():
+        if model_feedback.isCanceled():
             return {}
 
-        # Looping through vertices
-        feature_count = source.featureCount()
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
         fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
-        for feature in source.getFeatures():
+        # Looping through vertices
+        for current, feature in enumerate(source.getFeatures()):
             fid = feature[fid_idx]
 
             # For each pour point
             # Compute the percentage of forests and agriculture lands in the draining area
             # Then compute index_A1 and add it in a new field to the river network
-            if feedback.isCanceled():
+            if model_feedback.isCanceled():
                 return {}
 
             # Find number of dames in watershed
@@ -153,7 +153,7 @@ class IndiceA3(QgsProcessingAlgorithm):
             }
 
             outputs['single_point'] = processing.run(
-                'native:extractbyattribute', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+                'native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
             # Watershed
             alg_params = {
@@ -163,7 +163,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'output': tmp['mainWatershed'].name
             }
             outputs['mainWatershed'] = processing.run(
-                'wbt:Watershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+                'wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
             # Polygonize watershed (raster to vector)
             alg_params = {
@@ -176,7 +176,10 @@ class IndiceA3(QgsProcessingAlgorithm):
                 #'OUTPUT':tmp['mainWatershed'].name
             }
             outputs['mainWatershedPoly'] = processing.run(
-                'gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+                'gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+            if model_feedback.isCanceled():
+                return {}
 
             # materialize segment
             single_segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
@@ -190,7 +193,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 #'OUTPUT':f"tmp/buffer{fid}.gpkg"
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
             }
-            outputs['damBuffer'] = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            outputs['damBuffer'] = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)
 
             # Clip watershed by buffer
             alg_params = {
@@ -199,7 +202,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 #'OUTPUT': f"tmp/clipped_buffer_{fid}.gpkg"
                 'OUTPUT':tmp['buffer'].name
                 }
-            outputs['buffer_clip'] = processing.run("native:clip", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            outputs['buffer_clip'] = processing.run("native:clip", alg_params, context=context, feedback=None, is_child_algorithm=True)
 
 
             # Count number of dames in watershed
@@ -209,7 +212,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'INTERSECT':outputs['buffer_clip']['OUTPUT'],
                 'METHOD':0
             }
-            processing.run("native:selectbylocation", alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            processing.run("native:selectbylocation", alg_params, context=context, feedback=None, is_child_algorithm=True)
             dam_count = dams.selectedFeatureCount()
 
 
@@ -229,7 +232,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT,
                 #'OUTPUT' : f"tmp/test_buffer{fid}.gpkg"
             }
-            outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=feedback, is_child_algorithm=True)
+            outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=None, is_child_algorithm=True)
 
             # Clip landuse by buffer
             alg_params = {
@@ -251,7 +254,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'Y_RESOLUTION': None,
                 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT#f"tmp/land_use_clip_{fid}.tif"#
             }
-            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
             # Landuse unique values report
             alg_params = {
@@ -259,7 +262,7 @@ class IndiceA3(QgsProcessingAlgorithm):
                 'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
                 'OUTPUT_TABLE': tmp['table'].name
             }
-            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
             # Here we compute forest and agri area, the add to new feture
             table = QgsVectorLayer(
@@ -282,15 +285,25 @@ class IndiceA3(QgsProcessingAlgorithm):
             # Add modifed feature to sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
-            print(f'{fid}/{feature_count}')
-            print(f"{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
+            #print(f'{fid}/{total_features}')
+            #print(f"{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
 
-        feedback.setCurrentStep(3)
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
 
         # Clear temporary files
         for tempfile in tmp.values():
             tempfile.close()
             os.remove(tempfile.name)
+
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
 
         return {self.OUTPUT: dest_id}
 
@@ -307,13 +320,31 @@ class IndiceA3(QgsProcessingAlgorithm):
         return self.tr('Indice A3')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice A3")
+        return self.tr(
+            "Calcule de l'indice A3 afin d'évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non-confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial liée aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "WBT D8 Pointer: Matriciel\n" \
+            "-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
+            "Barrages : Vectoriel (point)\n" \
+            "-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice A3 calculé pour chaque UEA."
+        )
 
 def ptrefs_mean_width(feature, source, PtRef_id, width_field='Largeur_mod', context=None, feedback=None):
     expr = QgsExpression(f"""

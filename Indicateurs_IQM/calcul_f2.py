@@ -34,7 +34,6 @@ from qgis.core import (
     QgsProcessingParameterRasterLayer,
     QgsCoordinateReferenceSystem,
     QgsProcessingAlgorithm,
-    QgsProcessingMultiStepFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterNumber,
     QgsProcessingParameterFeatureSink,
@@ -79,8 +78,8 @@ class IndiceF2(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(
             QgsProcessingParameterMultipleLayers(
-                "antropic_layers",
-                "Antropic layers",
+                "anthropic_layers",
+                self.tr("Réseau routier (OSM)"),
                 layerType=QgsProcessing.TypeVector,
                 defaultValue=None,
                 optional=True,
@@ -89,7 +88,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "ptref_widths",
-                "PtRef_widths",
+                self.tr("PtRef largeur (CRHQ)"),
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
@@ -97,7 +96,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "rivnet",
-                "RivNet",
+                self.tr("Réseau hydrographique (CRHQ)"),
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -105,14 +104,14 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 "landuse",
-                "Utilisation du territoir",
+                self.tr("Utilisation du territoire (MELCCFP)"),
                 defaultValue=None
             )
         )
         self.addParameter(
             QgsProcessingParameterFeatureSink(
                 self.OUTPUT,
-                self.OUTPUT,
+                self.tr('Couche de sortie'),
                 type=QgsProcessing.TypeVectorAnyGeometry,
                 createByDefault=True,
                 supportsAppend=True,
@@ -121,10 +120,8 @@ class IndiceF2(QgsProcessingAlgorithm):
         )
 
     def processAlgorithm(self, parameters, context, model_feedback):
-
-        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-        # overall progress through the model
-        feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
+        if model_feedback.isCanceled():
+            return {}
 
         # Define source stream net
         source = self.parameterAsVectorLayer(parameters, 'rivnet', context)
@@ -144,16 +141,18 @@ class IndiceF2(QgsProcessingAlgorithm):
         )
 
         parameters['ratio'] = self.NORM_RATIO
-        anthropic_layers = self.parameterAsLayerList(parameters, 'antropic_layers', context)
+        anthropic_layers = self.parameterAsLayerList(parameters, 'anthropic_layers', context)
         anthropic_layers = [layer.id() for layer in anthropic_layers]
 
         # Reclassify landUse
-        vectorised_landuse = polygonize_landuse(parameters, context, feedback)
+        vectorised_landuse = polygonize_landuse(parameters, context, feedback=None)
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
-        # feature count for feedback
-        feature_count = source.featureCount()
+        # Gets the number of features to iterate over for the progress bar
+        total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
 
         expContext = QgsExpressionContext()
@@ -162,18 +161,18 @@ class IndiceF2(QgsProcessingAlgorithm):
         parameters['expContext'] = expContext
 
         # Itteration over all river network features
-        for segment in source.getFeatures():
+        for current, segment in enumerate(source.getFeatures()):
 
-            if feedback.isCanceled():
-                break
+            if model_feedback.isCanceled():
+                return {}
 
             logging.info(f"\n\nworking on : {segment[fid_idx]=}, {segment.id()=}")
 
-            points = pointsAlongGeometry(segment, source, context=context, feedback=feedback, output=QgsProcessingUtils.generateTempFilename("points.shp"))
-            segment_mean_width = get_segment_mean_width(segment, source, parameters, context=context, feedback=feedback)
+            points = pointsAlongGeometry(segment, source, context=context, feedback=None, output=QgsProcessingUtils.generateTempFilename("points.shp"))
+            segment_mean_width = get_segment_mean_width(segment, source, parameters, context=context, feedback=None)
             logging.info(f"compute {segment_mean_width=}")
 
-            normals = gen_split_normals(points, parameters, width=segment_mean_width,context=context, feedback=feedback)
+            normals = gen_split_normals(points, parameters, width=segment_mean_width,context=context, feedback=None)
             logging.info(f"normals created")
 
             parameters['expContext'].appendScopes(QgsExpressionContextUtils.globalProjectLayerScopes(normals))
@@ -191,8 +190,19 @@ class IndiceF2(QgsProcessingAlgorithm):
             # Add a feature to sink
             sink.addFeature(segment, QgsFeatureSink.FastInsert)
             logging.info(f"{indiceF2=}")
-            logging.info(f"{segment.id()} / {feature_count}\n\n")
+            logging.info(f"{segment.id()} / {total_features}\n\n")
             logging.info(f"segment{segment[fid_idx]} done !")
+
+            # Increments the progress bar
+            if total_features != 0:
+                progress = int(100*(current/total_features))
+            else:
+                progress = 0
+            model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT : dest_id}
 
@@ -209,13 +219,29 @@ class IndiceF2(QgsProcessingAlgorithm):
         return self.tr('Indice F2')
 
     def group(self):
-        return self.tr('IQM')
+        return self.tr('IQM (indice solo)')
 
     def groupId(self):
         return 'iqm'
 
     def shortHelpString(self):
-        return self.tr("Clacule l'indice F2")
+        return self.tr(
+            "Calcule de l'indice F2 afin d'évaluer la connectivité latérale avec la plaine alluviale.\n L'outil prend en compte les éléments de déconnexion artificielle  présents sur la plaine alluviale (réseau routier et affectation urbaine à l'intérieur de la plaine) afin d'évaluer la connectivité latérale potentielle des deux rives. La connectivité latérale est évaluée à partir d'une largeur minimale de 15 m jusqu'à une distance maximale de 50 m.\n" \
+            "Paramètres\n" \
+            "----------\n" \
+            "Réseau routier : Vectoriel (lignes)\n" \
+            "-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
+            "PtRef largeur : Vectoriel (points)\n" \
+            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Réseau hydrographique : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+            "Utilisation du territoire : Matriciel\n" \
+            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+            "Retourne\n" \
+            "----------\n" \
+            "Couche de sortie : Vectoriel (lignes)\n" \
+            "-> Réseau hydrographique du bassin versant avec le score de l'indice F2 calculé pour chaque UEA."
+        )
 
 def polygonize_landuse(parameters, context, feedback):
 
