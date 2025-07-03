@@ -92,6 +92,8 @@ class calculerIc(QgsProcessingAlgorithm):
             # Compute the number of steps to display within the progress bar and
             # get features from source
             total_features = source.featureCount()
+            feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
             features = [f for f in source.getFeatures()]
             #print(len(features))
             for current, feature in enumerate(features):
@@ -136,6 +138,10 @@ class calculerIc(QgsProcessingAlgorithm):
                 else:
                     progress = 0
                 feedback.setProgress(progress)
+                feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT: dest_id}
 

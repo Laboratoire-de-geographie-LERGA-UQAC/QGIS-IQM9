@@ -25,7 +25,6 @@ from qgis.core import (
     QgsExpressionContext,
     QgsExpressionContextUtils,
     QgsProcessingAlgorithm,
-    QgsProcessingFeedback,
     QgsProcessingParameterVectorLayer,
     QgsProcessingParameterFeatureSink,
     QgsProperty,
@@ -41,13 +40,13 @@ class IndiceF4(QgsProcessingAlgorithm):
     UTHRESH = 0.2
     LTHRESH = 0
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', 'PtRef largeur (CRHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', 'Réseau hydrographique (CRHQ)', types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+        self.addParameter(QgsProcessingParameterVectorLayer('rivnet', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
         self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
         self.UTHRESH = self.parameterAsDouble(parameters, 'thresh', context)
-        def pointsAlongGeometry(feature):
+        def pointsAlongGeometry(feature, feedback):
             # Materialize segment feature
             feature = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
 
@@ -59,7 +58,7 @@ class IndiceF4(QgsProcessingAlgorithm):
                 'START_OFFSET': 0,
                 'OUTPUT': QgsProcessingUtils.generateTempFilename("points.shp"),
             }
-            output = processing.run('native:pointsalonglines', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+            output = processing.run('native:pointsalonglines', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
             return QgsVectorLayer(output, 'points', 'ogr')
 
         def evaluate_expression(expression_str, vlayer, feature=None ):
@@ -123,14 +122,15 @@ class IndiceF4(QgsProcessingAlgorithm):
 
         # Gets the number of features to iterate over for the progress bar
         total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
         for current, segment in enumerate(source.getFeatures()):
-            
+
             if model_feedback.isCanceled():
                 return {}
     
             #gen points and normals along geometry
-            points_along_line = pointsAlongGeometry(segment)
+            points_along_line = pointsAlongGeometry(segment, feedback=None)
             div_distance = segment.geometry().length() / self.DIVS
 
             # Store normal length in numpy arrays
@@ -151,6 +151,10 @@ class IndiceF4(QgsProcessingAlgorithm):
             else:
                 progress = 0
             model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return results
 

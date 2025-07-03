@@ -35,7 +35,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'bande_riveraine_polly',
-                'Bande riveraine (peuplement forestier; MELCCFP)',
+                self.tr('Bande riveraine (peuplement forestier; MELCCFP)'),
                 types=[QgsProcessing.TypeVectorPolygon],
                 defaultValue=None,
             )
@@ -43,7 +43,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'ptref_widths',
-                'PtRef largeur (CRHQ)',
+                self.tr('PtRef largeur (CRHQ)'),
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
@@ -51,7 +51,7 @@ class IndiceF5(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 'rivnet',
-                'Réseau hydrographique (CRHQ)',
+                self.tr('Réseau hydrographique (CRHQ)'),
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -86,6 +86,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 
         # Gets the number of features to iterate over for the progress bar
         total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
         for current, segment in enumerate(source.getFeatures()):
 
@@ -113,7 +114,10 @@ class IndiceF5(QgsProcessingAlgorithm):
             else:
                 progress = 0
             model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT : dest_id}
 

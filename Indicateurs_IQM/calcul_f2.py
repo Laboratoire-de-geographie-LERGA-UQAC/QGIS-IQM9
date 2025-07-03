@@ -79,7 +79,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterMultipleLayers(
                 "anthropic_layers",
-                "Réseau routier (OSM)",
+                self.tr("Réseau routier (OSM)"),
                 layerType=QgsProcessing.TypeVector,
                 defaultValue=None,
                 optional=True,
@@ -88,7 +88,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "ptref_widths",
-                "PtRef largeur (CRHQ)",
+                self.tr("PtRef largeur (CRHQ)"),
                 types=[QgsProcessing.TypeVectorPoint],
                 defaultValue=None,
             )
@@ -96,7 +96,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterVectorLayer(
                 "rivnet",
-                "Réseau hydrographique (CRHQ)",
+                self.tr("Réseau hydrographique (CRHQ)"),
                 types=[QgsProcessing.TypeVectorLine],
                 defaultValue=None,
             )
@@ -104,7 +104,7 @@ class IndiceF2(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterRasterLayer(
                 "landuse",
-                "Utilisation du territoire (MELCCFP)",
+                self.tr("Utilisation du territoire (MELCCFP)"),
                 defaultValue=None
             )
         )
@@ -149,8 +149,9 @@ class IndiceF2(QgsProcessingAlgorithm):
         QgsProject.instance().addMapLayer(vectorised_landuse, addToLegend=False)
         anthropic_layers.append(vectorised_landuse.id())
 
-        # feature count for feedback
+        # Gets the number of features to iterate over for the progress bar
         total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
         fid_idx = max([source.fields().indexFromName(id) for id in ["id", "fid", "Id"]])
 
@@ -198,6 +199,10 @@ class IndiceF2(QgsProcessingAlgorithm):
             else:
                 progress = 0
             model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT : dest_id}
 

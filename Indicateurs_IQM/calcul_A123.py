@@ -47,7 +47,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 	TMP_VECTOR2 = 'vector2'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer(self.D8, self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer(self.LANDUSE, self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer(self.STREAM_NET, self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer(self.DAMS, self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
@@ -98,6 +98,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
+		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
 		# Itteration over all river networ features
 		for current, feature in enumerate(source.getFeatures()):
@@ -254,6 +255,10 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 			else:
 				progress = 0
 			model_feedback.setProgress(progress)
+			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
+		# Ending message
+		model_feedback.setProgressText(self.tr('\tProcessus terminé pour calcul de A1, A2, A3 et F1 !'))
 
 		return {self.OUTPUT : dest_id}
 

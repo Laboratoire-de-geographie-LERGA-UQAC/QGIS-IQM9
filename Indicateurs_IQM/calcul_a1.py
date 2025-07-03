@@ -107,6 +107,8 @@ class IndiceA1(QgsProcessingAlgorithm):
 		#for fid in list(fid_ids)[189:192]:
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
+		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for current, feature in enumerate(source.getFeatures()):
@@ -236,10 +238,14 @@ class IndiceA1(QgsProcessingAlgorithm):
 			else:
 				progress = 0
 			model_feedback.setProgress(progress)
+			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
 		# Clear temporary files
 		for tempfile in tmp.values():
 			tempfile.close()
+
+		# Ending message
+		model_feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
 
 		return {self.OUTPUT : dest_id}
 

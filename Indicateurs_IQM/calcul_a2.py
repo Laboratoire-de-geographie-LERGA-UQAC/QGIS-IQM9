@@ -21,9 +21,9 @@ class IndiceA2(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', "Réseau hydrographique (CRHQ)", types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-		self.addParameter(QgsProcessingParameterRasterLayer('D8', 'WBT D8 Pointer (sortant de Calcule pointeur D8)', defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('dams', 'Barrages (CEHQ)', types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr("Réseau hydrographique (CRHQ)"), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
@@ -82,7 +82,10 @@ class IndiceA2(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
+		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
+		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
 		fid_idx = source.fields().indexFromName(self.ID_FIELD)
 
 		for feature in source.getFeatures():
@@ -203,11 +206,15 @@ class IndiceA2(QgsProcessingAlgorithm):
 			else:
 				progress = 0
 			model_feedback.setProgress(progress)
+			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
 
 		# Clear temporary files
 		for tempfile in tmp.values():
 			tempfile.close()
+
+		# Ending message
+		model_feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
 
 		return {self.OUTPUT: dest_id}
 

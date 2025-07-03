@@ -62,6 +62,7 @@ class IndiceF1(QgsProcessingAlgorithm):
         model_feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
         # Gets the number of features to iterate over for the progress bar
         total_features = source.featureCount()
+        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
 
         for current, feature in enumerate(source.getFeatures()):
 
@@ -83,10 +84,13 @@ class IndiceF1(QgsProcessingAlgorithm):
             else:
                 progress = 0
             model_feedback.setProgress(progress)
+            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
             # Add a feature in the sink
             sink.addFeature(feature, QgsFeatureSink.FastInsert)
 
+        # Ending message
+        model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
         return {self.OUTPUT: dest_id}
 
