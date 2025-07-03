@@ -155,6 +155,10 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
         }
         outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
         results['Iqm'] = outputs['FieldCalculator']['OUTPUT']
+
+        feedback.setCurrentStep(9)
+        feedback.setProgressText(self.tr('\tProcessus terminé !'))
+
         return results
 
     def name(self):
