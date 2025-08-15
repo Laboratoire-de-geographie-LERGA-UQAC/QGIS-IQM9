@@ -6,12 +6,14 @@ With QGIS : 33000
 """
 
 from qgis.PyQt.QtCore import QCoreApplication
-from qgis.core import QgsProcessing
-from qgis.core import QgsProcessingAlgorithm
-from qgis.core import QgsProcessingMultiStepFeedback
-from qgis.core import QgsProcessingParameterVectorLayer
-from qgis.core import QgsProcessingParameterFeatureSink
-from qgis.core import QgsCoordinateReferenceSystem
+from qgis.core import (
+    QgsProcessing,
+    QgsProcessingAlgorithm,
+    QgsProcessingMultiStepFeedback,
+    QgsProcessingParameterVectorLayer,
+    QgsProcessingParameterFeatureSink,
+    QgsCoordinateReferenceSystem,
+)
 import processing
 
 
@@ -24,13 +26,11 @@ class AddStructures(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink('New_structures', self.tr('Couche de sortie (New_structures)'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, defaultValue=None))
 
     def processAlgorithm(self, parameters, context, model_feedback):
-        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-        # overall progress through the model
+        # Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the overall progress through the model
         feedback = QgsProcessingMultiStepFeedback(7, model_feedback)
-        results = {}
         outputs = {}
 
-        # Line intersections
+        # Finding intersections between the road and the river network
         alg_params = {
             'INPUT': parameters['cours_eau'],
             'INPUT_FIELDS': ['""'],
@@ -45,7 +45,7 @@ class AddStructures(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
-        # Merged structures
+        # Merging MTMD structures and river/road intersections
         alg_params = {
             'CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
             'LAYERS': [parameters['structures'],outputs['LineIntersections']['OUTPUT']],
@@ -57,58 +57,16 @@ class AddStructures(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
-        # Buffer
-        alg_params = {
-            'DISSOLVE': False,
-            'DISTANCE': 50,
-            'END_CAP_STYLE': 0,  # Rond
-            'INPUT': outputs['MergedStructures']['OUTPUT'],
-            'JOIN_STYLE': 0,  # Rond
-            'MITER_LIMIT': 2,
-            'SEGMENTS': 5,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['Buffer'] = processing.run('native:buffer', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        feedback.setCurrentStep(3)
-        if feedback.isCanceled():
-            return {}
-
-        # Dissolve
-        alg_params = {
-            'FIELD': [''],
-            'INPUT': outputs['Buffer']['OUTPUT'],
-            'SEPARATE_DISJOINT': True,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['Dissolve'] = processing.run('native:dissolve', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        feedback.setCurrentStep(4)
-        if feedback.isCanceled():
-            return {}
-
-        # Centroids
-        alg_params = {
-            'ALL_PARTS': False,
-            'INPUT': outputs['Dissolve']['OUTPUT'],
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['Centroids'] = processing.run('native:centroids', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        feedback.setCurrentStep(5)
-        if feedback.isCanceled():
-            return {}
-
-        # Extract within distance
+        # Extract structures within distance of the river network
         alg_params = {
             'DISTANCE': 100,
-            'INPUT': outputs['Centroids']['OUTPUT'],
+            'INPUT': outputs['MergedStructures']['OUTPUT'],
             'REFERENCE': parameters['cours_eau'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractWithinDistance'] = processing.run('native:extractwithindistance', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-        feedback.setCurrentStep(6)
+        feedback.setCurrentStep(3)
         if feedback.isCanceled():
             return {}
 
@@ -124,9 +82,8 @@ class AddStructures(QgsProcessingAlgorithm):
             'OUTPUT': parameters['New_structures']
         }
         outputs['AddUniqueId'] = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)
-        #results['New_structures'] = outputs['AddUniqueId']['OUTPUT']
 
-        feedback.setCurrentStep(7)
+        feedback.setCurrentStep(4)
 
         return {'OUTPUT' : outputs['AddUniqueId']['OUTPUT']}
 
@@ -144,7 +101,7 @@ class AddStructures(QgsProcessingAlgorithm):
 
     def shortHelpString(self):
         return self.tr(
-            "Sort les structures et les infrastructures routières qui coincide ou qui sont proche du cours d'eau (vérif).\n" \
+            "Sort les structures et les infrastructures routières qui coincide ou qui sont proche du cours d'eau.\n" \
             "Paramètres\n" \
             "----------\n" \
             "Réseau hydrographique : Vectoriel (lignes)\n" \
