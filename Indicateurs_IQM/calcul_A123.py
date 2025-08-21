@@ -288,6 +288,111 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		}
 		watersheds2x = processing.run('native:joinattributestable', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
 
+		# Store formula expressions for Indices A1, A2, A3, and F1
+		# Indice A1 formula
+		a1_formula = """
+		CASE
+			WHEN "watershed_area" = 0 THEN 2
+			WHEN ("forest_area"/"watershed_area") <= 0.1 THEN 5
+			WHEN ("forest_area"/"watershed_area") < 0.33 THEN 4
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") < 0.33 THEN 3
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") >= 0.33 THEN 2
+			WHEN ("forest_area"/"watershed_area") < 0.9 THEN 1
+			ELSE 0
+		END
+		"""
+
+		# Indice A2 formula. Treat null dam areas as 0.
+		a2_formula = """
+		CASE
+			WHEN "watershed_area" = 0 THEN 2
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.05 THEN 0
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.33 THEN 2
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.66 THEN 3
+			ELSE 4
+		END
+		"""
+
+		# Indice A3 formula
+		a3_formula = """
+			with_variable(
+			'penalty',
+			CASE
+				WHEN "dam_count1km" = 1 THEN 2
+				WHEN "dam_count1km" > 1 THEN 4
+				ELSE 0
+			END,
+			CASE
+				WHEN "land_area" = 0 THEN @penalty + 2
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.9 THEN @penalty + 4
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.66 THEN @penalty + 3
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.33 THEN @penalty + 2
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.1 THEN @penalty + 1
+				ELSE @penalty
+			END	
+			)
+			"""
+
+		# Indice F1 formula
+		f1_formula = """
+		CASE
+			WHEN "Long_km" IS NULL OR "Long_km" = 0 OR "struct_count1km" IS NULL OR "struct_count1km" = 0 THEN 0
+			WHEN ("struct_count1km"/"Long_km") <= 1 THEN 2
+			ELSE 4
+		END
+		"""
+
+		# Compute A1
+		alg_params = {
+			'INPUT': watersheds,
+			'FIELD_NAME': 'Indice A1',
+			'FIELD_TYPE': 2,  # 2 = Integer
+			'FIELD_LENGTH': 3,
+			'FIELD_PRECISION': 0,
+			'NEW_FIELD': True,
+			'FORMULA': a1_formula,
+			'OUTPUT': 'memory:watersheds'
+		}
+		watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Compute A2
+		alg_params = {
+			'INPUT': watersheds,
+			'FIELD_NAME': 'Indice A2',
+			'FIELD_TYPE': 2,  # 2 = integer
+			'FIELD_LENGTH': 3,
+			'FIELD_PRECISION': 0,
+			'NEW_FIELD': True,
+			'FORMULA': a2_formula,
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds.shp")
+		}
+		outputs['watersheds'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Compute A3
+		alg_params = {
+			'INPUT': watersheds2x,
+			'FIELD_NAME': 'Indice A3',
+			'FIELD_TYPE': 2,  # 2 = integer
+			'FIELD_LENGTH': 3,
+			'FIELD_PRECISION': 0,
+			'NEW_FIELD': True,
+			'FORMULA': a3_formula,
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds2x.shp")
+		}
+		outputs['watersheds2x'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Compute F1
+		alg_params = {
+			'INPUT': watersheds1km,
+			'FIELD_NAME': 'Indice F1',
+			'FIELD_TYPE': 2,  # 2 = integer
+			'FIELD_LENGTH': 3,
+			'FIELD_PRECISION': 0,
+			'NEW_FIELD': True,
+			'FORMULA': f1_formula,
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds1km.shp")
+		}
+		outputs['watersheds1km'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
