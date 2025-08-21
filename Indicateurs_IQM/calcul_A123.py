@@ -394,6 +394,32 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		}
 		outputs['watersheds1km'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
 
+		# Convert watershed features to vector layers
+		watersheds_lyr = QgsVectorLayer(outputs['watersheds'], 'ws', 'ogr')
+		watersheds2x_lyr = QgsVectorLayer(outputs['watersheds2x'], 'ws2x', 'ogr')
+		watersheds1km_lyr = QgsVectorLayer(outputs['watersheds1km'], 'ws1km', 'ogr')
+
+		# Map feature ID and index values for each watershed layer
+		a1_map = {f.id(): f['Indice A1'] for f in watersheds_lyr.getFeatures()}
+		a2_map = {f.id(): f['Indice A2'] for f in watersheds_lyr.getFeatures()}
+		a3_map = {f.id(): f['Indice A3'] for f in watersheds2x_lyr.getFeatures()}
+		f1_map = {f.id(): f['Indice F1'] for f in watersheds1km_lyr.getFeatures()}
+
+		# Write final indices to sink using map
+		for feat in source.getFeatures():
+			fid = feat.id()
+			vals = feat.attributes()
+
+			vals += [
+				a1_map.get(fid, None),
+				a2_map.get(fid, None),
+				a3_map.get(fid, None),
+				f1_map.get(fid, None),
+			]
+
+			feat.setAttributes(vals)
+			sink.addFeature(feat, QgsFeatureSink.FastInsert)
+
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
 		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
