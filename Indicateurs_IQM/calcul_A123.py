@@ -392,7 +392,6 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 		# Create spatial index
 		processing.run('native:createspatialindex', {'INPUT': merged_layer}, context=context, feedback=None, is_child_algorithm=True)
-
 		return merged_layer
 
 	def clip_raster(self, raster_id, mask_id, context, feedback, output=None):
@@ -418,24 +417,48 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		}
 		return processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
-	def compute_landuse_areas(self, clipped_landuse_id, mask_id, context, feedback):
-		# Clip Raster
-		clipped = self.clip_raster(clipped_landuse_id, mask_id, context, feedback)
+def compute_landuse_areas(self, landuse_raster, basin_layer, context, feedback):
+		# Inputs: Landuse raster, Basin polygon
+		# Output: Landuse counts (m²)
 
+		# Zonal histogram: produces pixel counts as fields lc_1, lc_2, lc_3, lc_4
 		alg_params = {
-			'BAND': 1,
-			'INPUT': clipped,
-			'OUTPUT_TABLE': QgsProcessingUtils.generateTempFilename("table.gpkg"),
+			'INPUT_RASTER': landuse_raster,
+			'RASTER_BAND': 1,
+			'INPUT_VECTOR': basin_layer,
+			'COLUMN_PREFIX': 'lc_',
+			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
-		table = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT_TABLE']
-		table = QgsVectorLayer(table, 'table', 'ogr')
-		class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
-		water_area = class_areas.get(4, 0)
-		anthro_area = class_areas.get(3, 0)
-		agri_area = class_areas.get(2, 0)
-		forest_area = class_areas.get(1, 0)
-		land_area = anthro_area + agri_area + forest_area
-		return (land_area, anthro_area, agri_area, forest_area)
+		zonalhist = processing.run('qgis:zonalhistogram', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Multiply pixel counts for each land class by 100 to get area in m²
+		lc_fields = ['lc_1', 'lc_2', 'lc_3', 'lc_4']
+		area_fields = ['forest_area', 'agri_area', 'anthro_area', 'water_area']
+
+		for i, field in enumerate(lc_fields):
+			alg_params = {
+				'INPUT': zonalhist,
+				'FIELD_NAME': area_fields[i],
+				'FIELD_TYPE': 0,  # Float
+				'FIELD_LENGTH': 20,
+				'FIELD_PRECISION': 2,
+				'FORMULA': f'"{field}" * 100',
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+
+		# Compute total land area = forest + agri + anthro
+		alg_params = {
+			'INPUT': zonalhist,
+			'FIELD_NAME': 'land_area',
+			'FIELD_TYPE': 0,  # Float
+			'FIELD_LENGTH': 20,
+			"FIELD_PRECISION": 2,
+			'FORMULA': '"forest_area" + "agri_area" + "anthro_area"',
+			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+		}
+		zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		return zonalhist
 
 	def get_poly_area(self, vlayer_id, context, feedback):
 		vlayer = QgsVectorLayer(vlayer_id, "Poly", "ogr")
