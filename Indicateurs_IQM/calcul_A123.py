@@ -6,9 +6,11 @@ With QGIS : 33000
 """
 
 import processing
+import pathlib import Path
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
 	QgsVectorLayer,
+	QgsProject,
 	QgsProcessingUtils,
 	QgsProcessingParameterFeatureSink,
 	QgsField,
@@ -333,13 +335,65 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		# Output : layer_id
 		alg_params = {
 			'BAND': 1,
-			'EIGHT_CONNECTEDNESS': False,
+			'EIGHT_CONNECTEDNESS': True,
 			'EXTRA': '',
 			'FIELD': 'DN',
 			'INPUT': raster_id,
 			'OUTPUT': output
 		}
 		return processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+
+	def generate_basin_polygons(self, d8_pointer, pour_points, temp_prefix, context, feedback):
+		# Inputs: d8 pointer, Pour points, Temp prefix
+		# Output: Merged watershed polygon
+
+		# Unnest basins into multiple raster layers
+		prefix = QgsProcessingUtils.generateTempFilename(temp_prefix)
+		alg_params = {
+			'd8_pntr': d8_pointer,
+			'pour_pts': pour_points,
+			'esri_pntr': False,
+			'output': prefix + '.tif'
+		}
+		output_tif = processing.run('wbt:UnnestBasins', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
+
+		# Find all watershed rasters and sort them by index
+		base = Path(output_tif).with_suffix('')
+		rasters = sorted(
+			base.parent.glob(f"{base.stem}_*.tif"),
+			key=lambda p: int(p.stem.rsplit('_', 1)[-1])
+		)
+
+		# Polygonize each raster layer
+		vecs = []
+		for ras in rasters:
+			shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}_poly.shp")
+			poly = self.polygonize_raster(raster_id=str(ras), context=context, feedback=feedback, output=shp)
+
+			# Fix geometries and return layer
+			alg_params = {
+				'INPUT': poly,
+				'OUTPUT': f'memory:{Path(shp).stem}_fixed'
+			}
+			fixed = processing.run('native:fixgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			vecs.append(fixed)
+
+		# Merge the basin polygons into one layer
+		merge_shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}.shp")
+		alg_params = {
+			'LAYERS': vecs,
+			'CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
+			'OUTPUT': merge_shp
+		}
+		merged = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=feedback,	is_child_algorithm=True)['OUTPUT']
+
+		# Load merged result as QgsVectorLayer
+		merged_layer = QgsVectorLayer(merged, f"{temp_prefix}_merged", "ogr")
+
+		# Create spatial index
+		processing.run('native:createspatialindex', {'INPUT': merged_layer}, context=context, feedback=None, is_child_algorithm=True)
+
+		return merged_layer
 
 	def clip_raster(self, raster_id, mask_id, context, feedback, output=None):
 
