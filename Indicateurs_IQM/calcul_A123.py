@@ -84,19 +84,44 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
-		# Extract And Snap Outlets
+		# Extract and snap outlets
 		alg_params = {
 			'dem': parameters[self.D8],
 			'stream_network': parameters['stream_network'],
-			'snapped_outlets': QgsProcessingUtils.generateTempFilename("outlets.shp"),
+			'snapped_outlets': QgsProcessingUtils.generateTempFilename("snappedoutlets.shp"),
 		}
-		outputs['SnappedOutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		outputs['snappedoutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
 		if model_feedback.isCanceled():
 			return {}
 
-		# Reclassify Landuse
-		outputs['ReclassifiedLanduse'] = self.reduce_landuse(parameters, context, feedback=None)
+		# Reclassify landuse
+		outputs['reclassifiedlanduse'] = self.reduce_landuse(parameters, context, feedback=None)
+
+		# Generate watershed polygons
+		watersheds = self.generate_basin_polygons(parameters[self.D8], outputs['snappedoutlets'], temp_prefix="watersheds", context=context, feedback=model_feedback)
+
+		if model_feedback.isCanceled():
+			return {}
+
+		# Compute area for all watersheds under "watersheds_area" field
+		alg_params = {
+			'INPUT': watersheds,
+			'FIELD_NAME': 'watershed_area',
+			'FIELD_TYPE': 0,  # 0 = float
+			'FIELD_LENGTH': 10,
+			'FIELD_PRECISION': 3,
+			'NEW_FIELD': True,
+			'FORMULA': '$area',
+			'OUTPUT': 'memory:watersheds'
+		}
+		watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		if model_feedback.isCanceled():
+			return {}
+		
+		# Compute landuse area for each watershed
+		watersheds = self.compute_landuse_areas(outputs['reclassifiedlanduse'], watersheds, context=context, feedback=model_feedback)
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
