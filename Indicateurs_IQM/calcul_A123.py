@@ -248,6 +248,47 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
+		# Compute mena stream width for stream network segments
+		ptref_id = parameters[self.PTREFS]
+		expr = f"coalesce(array_mean(overlay_nearest('{ptref_id}', \"Largeur_mod\", limit:=-1, max_distance:=5)), 5)"
+		alg_params = {
+			'INPUT': parameters[self.STREAM_NET],
+			'FIELD_NAME': 'mean_width',
+			'FIELD_TYPE': 0,  # 0 = float
+			'FIELD_LENGTH': 10,
+			'FIELD_PRECISION': 3,
+			'NEW_FIELD': True,
+			'FORMULA': expr,
+			'OUTPUT': 'memory:stream_w_mean'
+		}
+		stream_w_mean = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Create 'Mean width x 2.5' buffer
+		expr = 'buffer($geometry, "mean_width" * 2.5, 30, \'round\', \'miter\', 2)'
+		alg_params = {
+			'INPUT': stream_w_mean,
+			'EXPRESSION': expr,
+			'OUTPUT': QgsProcessingUtils.generateTempFilename('buffer2x.shp')
+		}
+		outputs['buffer2x'] = processing.run('qgis:geometrybyexpression', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Compute landuse within 2.5x mean width buffer
+		watersheds2x = self.compute_landuse_areas(outputs['reclassifiedlanduse'], outputs['buffer2x'], context=context, feedback=model_feedback)
+
+		# Join dam_count1km to watersheds2x
+		alg_params = {
+			'INPUT': watersheds2x,
+			'FIELD': 'Id',
+			'INPUT_2': watersheds1km,
+			'FIELD_2': 'Id',
+			'FIELDS_TO_COPY': ['dam_count1km'],
+			'METHOD': 1,  # 1 = one-to-one
+			'DISCARD_NONMATCHING': False,
+			'OUTPUT': 'memory:watersheds2x'
+		}
+		watersheds2x = processing.run('native:joinattributestable', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
 		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
