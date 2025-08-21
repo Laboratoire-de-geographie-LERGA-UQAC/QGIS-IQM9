@@ -6,7 +6,7 @@ With QGIS : 33000
 """
 
 import processing
-import pathlib import Path
+from pathlib import Path
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
 	QgsVectorLayer,
@@ -559,66 +559,66 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		processing.run('native:createspatialindex', {'INPUT': merged_layer}, context=context, feedback=None, is_child_algorithm=True)
 		return merged_layer
 
-def compute_landuse_areas(self, landuse_raster, basin_layer, context, feedback):
-		# Inputs: Landuse raster, Basin polygon
-		# Output: Landuse counts (m²)
+	def compute_landuse_areas(self, landuse_raster, basin_layer, context, feedback):
+			# Inputs: Landuse raster, Basin polygon
+			# Output: Landuse counts (m²)
 
-		# Zonal histogram: produces pixel counts as fields lc_1, lc_2, lc_3, lc_4
-		alg_params = {
-			'INPUT_RASTER': landuse_raster,
-			'RASTER_BAND': 1,
-			'INPUT_VECTOR': basin_layer,
-			'COLUMN_PREFIX': 'lc_',
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		zonalhist = processing.run('qgis:zonalhistogram', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			# Zonal histogram: produces pixel counts as fields lc_1, lc_2, lc_3, lc_4
+			alg_params = {
+				'INPUT_RASTER': landuse_raster,
+				'RASTER_BAND': 1,
+				'INPUT_VECTOR': basin_layer,
+				'COLUMN_PREFIX': 'lc_',
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			zonalhist = processing.run('qgis:zonalhistogram', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-		# Multiply pixel counts for each land class by 100 to get area in m²
-		lc_fields = ['lc_1', 'lc_2', 'lc_3', 'lc_4']
-		area_fields = ['forest_area', 'agri_area', 'anthro_area', 'water_area']
+			# Multiply pixel counts for each land class by 100 to get area in m²
+			lc_fields = ['lc_1', 'lc_2', 'lc_3', 'lc_4']
+			area_fields = ['forest_area', 'agri_area', 'anthro_area', 'water_area']
 
-		for i, field in enumerate(lc_fields):
+			for i, field in enumerate(lc_fields):
+				alg_params = {
+					'INPUT': zonalhist,
+					'FIELD_NAME': area_fields[i],
+					'FIELD_TYPE': 0,  # Float
+					'FIELD_LENGTH': 20,
+					'FIELD_PRECISION': 2,
+					'FORMULA': f'"{field}" * 100',
+					'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+				}
+				zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+
+			# Compute total land area = forest + agri + anthro
 			alg_params = {
 				'INPUT': zonalhist,
-				'FIELD_NAME': area_fields[i],
+				'FIELD_NAME': 'land_area',
 				'FIELD_TYPE': 0,  # Float
 				'FIELD_LENGTH': 20,
-				'FIELD_PRECISION': 2,
-				'FORMULA': f'"{field}" * 100',
+				"FIELD_PRECISION": 2,
+				'FORMULA': '"forest_area" + "agri_area" + "anthro_area"',
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-
-		# Compute total land area = forest + agri + anthro
-		alg_params = {
-			'INPUT': zonalhist,
-			'FIELD_NAME': 'land_area',
-			'FIELD_TYPE': 0,  # Float
-			'FIELD_LENGTH': 20,
-			"FIELD_PRECISION": 2,
-			'FORMULA': '"forest_area" + "agri_area" + "anthro_area"',
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-		return zonalhist
+			return zonalhist
 
 	def buffer_streams(self, buffer, watershed, context, feedback):
-		# Input: Buffer layer, watershed layer
-		# Output: Buffered watershed layer
+			# Input: Buffer layer, watershed layer
+			# Output: Buffered watershed layer
 
-		# Intersect watershed and buffer layers
-		alg_params = {
-			'INPUT': watershed,
-			'OVERLAY': buffer,
-			'OUTPUT': 'memory:ws_buff'
-		}
-		ws_buff = processing.run('qgis:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			# Intersect watershed and buffer layers
+			alg_params = {
+				'INPUT': watershed,
+				'OVERLAY': buffer,
+				'OUTPUT': 'memory:ws_buff'
+			}
+			ws_buff = processing.run('qgis:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-		# Dissolve intersected layer by buffer fid
-		alg_params = {
-			'INPUT': ws_buff,
-			'FIELD': ['fid'],
-			'OUTPUT': 'memory:ws_dissolved'
-		}
-		ws_dissolved = processing.run('native:dissolve', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
-		return ws_dissolved
+			# Dissolve intersected layer by buffer fid
+			alg_params = {
+				'INPUT': ws_buff,
+				'FIELD': ['fid'],
+				'OUTPUT': 'memory:ws_dissolved'
+			}
+			ws_dissolved = processing.run('native:dissolve', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			return ws_dissolved
