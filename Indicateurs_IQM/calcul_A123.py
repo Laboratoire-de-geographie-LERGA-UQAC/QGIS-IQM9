@@ -98,7 +98,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		# Reclassify landuse
 		outputs['reclassifiedlanduse'] = self.reduce_landuse(parameters, context, feedback=None)
 
-		# Generate watershed polygons
+		# Generate watershed polygon
 		watersheds = self.generate_basin_polygons(parameters[self.D8], outputs['snappedoutlets'], temp_prefix="watersheds", context=context, feedback=model_feedback)
 
 		if model_feedback.isCanceled():
@@ -119,9 +119,83 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 
 		if model_feedback.isCanceled():
 			return {}
-		
+
 		# Compute landuse area for each watershed
 		watersheds = self.compute_landuse_areas(outputs['reclassifiedlanduse'], watersheds, context=context, feedback=model_feedback)
+
+		if model_feedback.isCanceled():
+			return {}
+
+		# Remove duplicate dam points
+		alg_params = {
+			'INPUT': parameters[self.DAMS],
+			'OUTPUT': 'memory:dams_edited'
+		}
+		dams_edited = processing.run('native:deleteduplicategeometries', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Add index to edited dam points
+		alg_params = {
+			'INPUT': dams_edited,
+			'FIELD_NAME': 'row_index',
+			'FIELD_TYPE': 1,  # 1 = integer
+			'FIELD_LENGTH': 10,
+			'NEW_FIELD': True,
+			'FORMULA': '@row_number + 1',  # Start at 1
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("dams_edited.shp")
+		}
+		outputs['dams_edited'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		if model_feedback.isCanceled():
+			return {}
+
+		# Generate dam watershed polygon
+		damsheds = self.generate_basin_polygons(parameters[self.D8], outputs['dams_edited'], temp_prefix="damwatersheds", context=context, feedback=model_feedback)
+
+		if model_feedback.isCanceled():
+			return {}
+
+		# Compute area for dam watersheds
+		alg_params = {
+			'INPUT': damsheds,
+			'FIELD_NAME': 'dam_area',
+			'FIELD_TYPE': 0,  # 0 = float
+			'FIELD_LENGTH': 10,
+			'FIELD_PRECISION': 3,
+			'NEW_FIELD': True,
+			'FORMULA': '$area',
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("damsheds_area.shp")
+		}
+		outputs['damsheds_area'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Attach 'dam_area' back to dam points
+		alg_params = {
+			'INPUT': outputs['dams_edited'],
+			'FIELD': 'row_index',
+			'INPUT_2': outputs['damsheds_area'],
+			'FIELD_2': 'DN',
+			'FIELDS_TO_COPY': ['dam_area'],
+			'METHOD': 1,  # 1 = one-to-one
+			'DISCARD_NONMATCHING': False,
+			'OUTPUT': 'memory:dams_points_area'
+		}
+		dams_points_area = processing.run('native:joinattributestable', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+		processing.run('native:createspatialindex', {'INPUT': dams_points_area}, context=context, feedback=None, is_child_algorithm=True)
+
+		# Locate dam points in watersheds and sum total dam area per watershed
+		alg_params = {
+			'INPUT': watersheds,
+			'PREDICATE': [1],  # 1 = contains
+			'JOIN': dams_points_area,
+			'JOIN_FIELDS': ['dam_area'],
+			'SUMMARIES': [5],  # 5 = sum
+			'PREFIX': '',
+			'DISCARD_NONMATCHING': False,
+			'OUTPUT': 'memory:watersheds'
+		}
+		watersheds = processing.run("qgis:joinbylocationsummary", alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		if model_feedback.isCanceled():
+			return {}
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
