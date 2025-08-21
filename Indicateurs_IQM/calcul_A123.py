@@ -197,6 +197,57 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
+		# Create 1km buffer on stream network
+		alg_params = {
+			'INPUT': parameters[self.STREAM_NET],
+			'DISTANCE': 1000,
+			'SEGMENTS': 5,
+			'END_CAP_STYLE': 0,  # 0 = Round
+			'JOIN_STYLE': 0,  # 0 = Round
+			'MITER_LIMIT': 2,
+			'DISSOLVE': False,
+			'OUTPUT': QgsProcessingUtils.generateTempFilename("buffer1km.shp")
+		}
+		outputs['buffer1km'] = processing.run("native:buffer", alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+		processing.run('native:createspatialindex', {'INPUT': outputs['buffer1km']}, context=context, feedback=model_feedback, is_child_algorithm=True)
+
+		# Intersect and dissolve watershed and buffer layers to generate 1km watershed buffer
+		watersheds1km = self.buffer_streams(outputs['buffer1km'], watersheds, context=context, feedback=model_feedback)
+
+		# Count number of dams in 1km watershed buffer
+		alg_params = {
+			'POLYGONS': watersheds1km,
+			'POINTS': parameters[self.DAMS],
+			'FIELD': 'dam_count1km',
+			'OUTPUT': 'memory:watersheds1km'
+		}
+		watersheds1km = processing.run("native:countpointsinpolygon", alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Count number structures in 1km watershed buffer
+		alg_params = {
+			'POLYGONS': watersheds1km,
+			'POINTS': parameters[self.STRUCTS],
+			'FIELD': 'struct_count1km',
+			'OUTPUT': 'memory:watersheds1km'
+		}
+		watersheds1km = processing.run("native:countpointsinpolygon", alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Join stream network river length ('Long_km') to watersheds1km for F1 calculation
+		alg_params = {
+			'INPUT': watersheds1km,
+			'FIELD': 'DN',
+			'INPUT_2': parameters[self.STREAM_NET],
+			'FIELD_2': 'fid',
+			'FIELDS_TO_COPY': ['Long_km'],
+			'METHOD': 1,  # 1 = one-to-one
+			'DISCARD_NONMATCHING': False,
+			'OUTPUT': 'memory:watersheds1km'
+		}
+		watersheds1km = processing.run('native:joinattributestable', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+
+		if model_feedback.isCanceled():
+			return {}
+
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
 		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
@@ -558,6 +609,27 @@ def compute_landuse_areas(self, landuse_raster, basin_layer, context, feedback):
 		}
 		zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 		return zonalhist
+
+	def buffer_streams(self, buffer, watershed, context, feedback):
+		# Input: Buffer layer, watershed layer
+		# Output: Buffered watershed layer
+
+		# Intersect watershed and buffer layers
+		alg_params = {
+			'INPUT': watershed,
+			'OVERLAY': buffer,
+			'OUTPUT': 'memory:ws_buff'
+		}
+		ws_buff = processing.run('qgis:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+
+		# Dissolve intersected layer by buffer fid
+		alg_params = {
+			'INPUT': ws_buff,
+			'FIELD': ['fid'],
+			'OUTPUT': 'memory:ws_dissolved'
+		}
+		ws_dissolved = processing.run('native:dissolve', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+		return ws_dissolved
 
 	def get_poly_area(self, vlayer_id, context, feedback):
 		vlayer = QgsVectorLayer(vlayer_id, "Poly", "ogr")
