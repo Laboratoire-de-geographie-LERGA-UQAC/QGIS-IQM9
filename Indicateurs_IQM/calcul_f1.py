@@ -87,27 +87,40 @@ class IndiceF1(QgsProcessingAlgorithm):
                 if downstream_feat is None:
                     continue
 
-                intersection_point = None
-                try :
-                    # Find the intersecting point between the structure river segment and the downstream segment
-                    intersection_point = get_intersection_point(current_feat, downstream_feat)
-                except Exception as e :
-                    model_feedback.reportError(self.tr(f"Erreur dans get_intersection_point : {str(e)}"))
-                if intersection_point is None:
-                    continue
+                cost = 0
+                # Iterate over the next downstream segments if the distance of the structure is less than 1000 meters
+                while (cost < 1000) and (downstream_feat is not None) :
+                    intersection_point = None
+                    try :
+                        # Find the intersecting point between the structure river segment and the downstream segment
+                        intersection_point = get_intersection_point(current_feat, downstream_feat)
+                    except Exception as e :
+                        model_feedback.reportError(self.tr(f"Erreur dans get_intersection_point : {str(e)}"))
+                    if intersection_point is None:
+                        break
 
-                try :
-                    # Calculates the distance along the network between the structure and this point
-                    cost = compute_shortest_path(struct, intersection_point, hydro_layer, model_feedback, context)
-                except Exception as e :
-                    model_feedback.reportError(self.tr(f"Erreur dans compute_shortest_path : {str(e)}"))
+                    try :
+                        # Calculates the distance along the network between the structure and this point
+                        cost = compute_shortest_path(struct, intersection_point, hydro_layer, model_feedback, context)
+                    except Exception as e :
+                        model_feedback.reportError(self.tr(f"Erreur dans compute_shortest_path : {str(e)}"))
 
-                # If the distance is < 1000 m, increment the downstream segment structure counter.
-                if cost is None :
-                    continue
-                if cost < 1000:
-                    downstream_id = downstream_feat['Id_UEA']
-                    structure_counts[downstream_id] = structure_counts.get(downstream_id, 0) + 1
+                    # If the distance is < 1000 m, increment the downstream segment structure counter.
+                    if cost is None :
+                        break
+                    if cost < 1000:
+                        downstream_id = downstream_feat['Id_UEA']
+                        structure_counts[downstream_id] = structure_counts.get(downstream_id, 0) + 1
+                        # Get the downstream segment of the downstream segment to see if the structure is within range of another segment (for the next iteration of the while loop)
+                        current_feat = downstream_feat
+                        downstream_feat = None
+                        try :
+                            # Finds the downstream river segment
+                            downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+                        except Exception as e :
+                            model_feedback.reportError(self.tr(f"Erreur dans get_downstream_segment du segment en aval du segment d'aval de la structure : {str(e)}"))
+                        if downstream_feat is None:
+                            break
 
                 # Updating the progress bar
                 if total_features != 0:
