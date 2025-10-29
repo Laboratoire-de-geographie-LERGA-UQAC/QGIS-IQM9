@@ -57,16 +57,58 @@ class AddStructures(QgsProcessingAlgorithm):
         if feedback.isCanceled():
             return {}
 
+        # Buffer around each structures
+        alg_params = {
+            'DISSOLVE': False,
+            'DISTANCE': 2,
+            'END_CAP_STYLE': 0,  # Rond
+            'INPUT': outputs['MergedStructures']['OUTPUT'],
+            'JOIN_STYLE': 0,  # Rond
+            'MITER_LIMIT': 2,
+            'SEGMENTS': 5,
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Buffer'] = processing.run('native:buffer', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+        feedback.setCurrentStep(3)
+        if feedback.isCanceled():
+            return {}
+
+        # Dissolving buffers into one shape (if multiple points are nearby)
+        alg_params = {
+            'FIELD': [''],
+            'INPUT': outputs['Buffer']['OUTPUT'],
+            'SEPARATE_DISJOINT': True,
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Dissolve'] = processing.run('native:dissolve', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+        feedback.setCurrentStep(4)
+        if feedback.isCanceled():
+            return {}
+
+        # Finding the centroid of the shape to get the mean coordinates for points close to one another
+        alg_params = {
+            'ALL_PARTS': False,
+            'INPUT': outputs['Dissolve']['OUTPUT'],
+            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+        }
+        outputs['Centroids'] = processing.run('native:centroids', alg_params, context=context, feedback=None, is_child_algorithm=True)
+
+        feedback.setCurrentStep(5)
+        if feedback.isCanceled():
+            return {}
+
         # Extract structures within distance of the river network
         alg_params = {
             'DISTANCE': 100,
-            'INPUT': outputs['MergedStructures']['OUTPUT'],
+            'INPUT': outputs['Centroids']['OUTPUT'],
             'REFERENCE': parameters['cours_eau'],
             'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
         }
         outputs['ExtractWithinDistance'] = processing.run('native:extractwithindistance', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-        feedback.setCurrentStep(3)
+        feedback.setCurrentStep(6)
         if feedback.isCanceled():
             return {}
 
@@ -83,7 +125,7 @@ class AddStructures(QgsProcessingAlgorithm):
         }
         outputs['AddUniqueId'] = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-        feedback.setCurrentStep(4)
+        feedback.setCurrentStep(7)
 
         return {'OUTPUT' : outputs['AddUniqueId']['OUTPUT']}
 
