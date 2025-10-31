@@ -400,21 +400,21 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		watersheds1km_lyr = QgsVectorLayer(outputs['watersheds1km'], 'ws1km', 'ogr')
 
 		# Map feature ID and index values for each watershed layer
-		a1_map = {f.id(): f['Indice A1'] for f in watersheds_lyr.getFeatures()}
-		a2_map = {f.id(): f['Indice A2'] for f in watersheds_lyr.getFeatures()}
-		a3_map = {f.id(): f['Indice A3'] for f in watersheds2x_lyr.getFeatures()}
-		f1_map = {f.id(): f['Indice F1'] for f in watersheds1km_lyr.getFeatures()}
+		a1_map = {f['DN']: f['Indice A1'] for f in watersheds_lyr.getFeatures()}
+		a2_map = {f['DN']: f['Indice A2'] for f in watersheds_lyr.getFeatures()}
+		a3_map = {f['Segment']: f['Indice A3'] for f in watersheds2x_lyr.getFeatures()}
+		f1_map = {f['DN']: f['Indice F1'] for f in watersheds1km_lyr.getFeatures()}
 
 		# Write final indices to sink using map
 		for feat in source.getFeatures():
-			fid = feat.id()
+			seg = feat['Segment']
 			vals = feat.attributes()
 
 			vals += [
-				a1_map.get(fid, None),
-				a2_map.get(fid, None),
-				a3_map.get(fid, None),
-				f1_map.get(fid, None),
+				a1_map.get(seg, None),
+				a2_map.get(seg, None),
+				a3_map.get(seg, None),
+				f1_map.get(seg, None),
 			]
 
 			feat.setAttributes(vals)
