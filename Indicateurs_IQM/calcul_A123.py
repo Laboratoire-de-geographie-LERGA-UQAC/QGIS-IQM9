@@ -105,7 +105,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 			feedback.setCurrentStep(2)
 			# Generate watershed polygon
 			feedback.setProgressText(self.tr(f"Generate watershed polygon."))
-			watersheds = self.generate_basin_polygons(parameters[self.D8], outputs['snappedoutlets'], temp_prefix="watersheds", context=context, feedback=None)
+			watersheds = self.generate_basin_polygons(parameters[self.D8], outputs['snappedoutlets'], temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
 			feedback.setCurrentStep(3)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans polyganisation du bassin versant : {str(e)}"))
@@ -151,7 +151,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 			outputs['dams_edited'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 			feedback.setCurrentStep(7)
 			# Generate dam watershed polygon
-			damsheds = self.generate_basin_polygons(parameters[self.D8], outputs['dams_edited'], temp_prefix="damwatersheds", context=context, feedback=None)
+			damsheds = self.generate_basin_polygons(parameters[self.D8], outputs['dams_edited'], temp_prefix="damwatersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
 			feedback.setCurrentStep(8)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans traitement polygones pour barrages : {str(e)}"))
@@ -537,7 +537,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		}
 		return processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
-	def generate_basin_polygons(self, d8_pointer, pour_points, temp_prefix, context, feedback):
+	def generate_basin_polygons(self, d8_pointer, pour_points, temp_prefix, CRS, context, feedback):
 		# Inputs: d8 pointer, Pour points, Temp prefix
 		# Output: Merged watershed polygon
 
@@ -576,7 +576,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		merge_shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}.shp")
 		alg_params = {
 			'LAYERS': vecs,
-			'CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
+			'CRS': CRS,
 			'OUTPUT': merge_shp
 		}
 		merged = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=feedback,	is_child_algorithm=True)['OUTPUT']
