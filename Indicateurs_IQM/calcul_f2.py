@@ -373,8 +373,11 @@ def get_mean_unrestricted_distance(normals, river_width, bounding_layer_ids, par
 
 def computeF2(mean_length):
     # search for anthropisation in buffers
-    barem = ((5, 15), (3, 30), (2, 49)) # barem corresponds to (IQM score, buffer search scale) tuples
-    for score, dist in barem:
-        if mean_length <= dist:
-            return score
-    return 0
+    if mean_length > 50: # Lateral connectivity with the alluvial plain over a width of more than 50m
+         return 0
+    elif mean_length >= 30 and mean_length <= 50 : # Lateral connectivity with the alluvial plain over a width between [30m, 50m]
+        return 2
+    elif mean_length >= 15 and mean_length < 30 : # Lateral connectivity with the alluvial plain over a width between [15m, 30m[
+        return 3
+    elif mean_length < 15 : # Lateral connectivity with the alluvial plain over a width less than 15m
+        return 5
