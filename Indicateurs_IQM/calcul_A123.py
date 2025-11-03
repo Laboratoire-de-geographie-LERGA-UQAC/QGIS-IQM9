@@ -6,9 +6,11 @@ With QGIS : 33000
 """
 
 import processing
+from pathlib import Path
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
 	QgsVectorLayer,
+	QgsProject,
 	QgsProcessingUtils,
 	QgsProcessingParameterFeatureSink,
 	QgsField,
@@ -18,6 +20,7 @@ from qgis.core import (
 	QgsExpression,
 	QgsExpressionContext,
 	QgsExpressionContextUtils,
+	QgsProcessingMultiStepFeedback,
 	QgsProcessing,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterRasterLayer,
@@ -56,6 +59,9 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
+		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
+		# overall progress through the model
+		feedback = QgsProcessingMultiStepFeedback(27, model_feedback)
 		outputs = {}
 
 		# Source definition
@@ -79,186 +85,376 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
-		if model_feedback.isCanceled():
+		if feedback.isCanceled():
 			return {}
 
-		# Extract And Snap Outlets
-		alg_params = {
-			'dem': parameters[self.D8],
-			'stream_network': parameters['stream_network'],
-			'snapped_outlets': QgsProcessingUtils.generateTempFilename("outlets.shp"),
-		}
-		outputs['SnappedOutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		feedback.setProgressText(self.tr(f"Polygonisation du bassin versant."))
+		try :
+			# Extract and snap outlets
+			feedback.setProgressText(self.tr(f"Extract and snap outlet."))
+			alg_params = {
+				'dem': parameters[self.D8],
+				'stream_network': parameters['stream_network'],
+				'snapped_outlets': QgsProcessingUtils.generateTempFilename("snappedoutlets.shp"),
+			}
+			outputs['snappedoutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(1)
+			# Reclassify landuse
+			feedback.setProgressText(self.tr(f"Reclassify landuse."))
+			outputs['reclassifiedlanduse'] = self.reduce_landuse(parameters, context, feedback=None)
+			feedback.setCurrentStep(2)
+			# Generate watershed polygon
+			feedback.setProgressText(self.tr(f"Generate watershed polygon."))
+			watersheds = self.generate_basin_polygons(parameters[self.D8], outputs['snappedoutlets'], temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
+			feedback.setCurrentStep(3)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans polyganisation du bassin versant : {str(e)}"))
 
-		if model_feedback.isCanceled():
+		if feedback.isCanceled():
 			return {}
 
-		# Reclassify Landuse
-		outputs['ReclassifiedLanduse'] = self.reduce_landuse(parameters, context, feedback=None)
+		feedback.setProgressText(self.tr(f"Traitement polygones pour les barrages."))
+		try :
+			# Compute area for all watersheds under "watersheds_area" field
+			alg_params = {
+				'INPUT': watersheds,
+				'FIELD_NAME': 'watershed_area',
+				'FIELD_TYPE': 0,  # 0 = float
+				'FIELD_LENGTH': 10,
+				'FIELD_PRECISION': 3,
+				'NEW_FIELD': True,
+				'FORMULA': '$area',
+				'OUTPUT': 'memory:watersheds'
+			}
+			watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(4)
+			# Compute landuse area for each watershed
+			watersheds = self.compute_landuse_areas(outputs['reclassifiedlanduse'], watersheds, context=context, feedback=None)
+			feedback.setCurrentStep(5)
+			# Remove duplicate dam points
+			alg_params = {
+				'INPUT': parameters[self.DAMS],
+				'OUTPUT': 'memory:dams_edited'
+			}
+			dams_edited = processing.run('native:deleteduplicategeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(6)
+			# Add index to edited dam points
+			alg_params = {
+				'INPUT': dams_edited,
+				'FIELD_NAME': 'row_index',
+				'FIELD_TYPE': 1,  # 1 = integer
+				'FIELD_LENGTH': 10,
+				'NEW_FIELD': True,
+				'FORMULA': '@row_number + 1',  # Start at 1
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("dams_edited.shp")
+			}
+			outputs['dams_edited'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(7)
+			# Generate dam watershed polygon
+			damsheds = self.generate_basin_polygons(parameters[self.D8], outputs['dams_edited'], temp_prefix="damwatersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
+			feedback.setCurrentStep(8)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans traitement polygones pour barrages : {str(e)}"))
 
-		# Gets the number of features to iterate over for the progress bar
-		total_features = source.featureCount()
-		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+		if feedback.isCanceled():
+			return {}
 
-		# Itteration over all river networ features
-		for current, feature in enumerate(source.getFeatures()):
+		feedback.setProgressText(self.tr(f"Calcul superficie des barrages."))
+		try :
+			# Compute area for dam watersheds
+			alg_params = {
+				'INPUT': damsheds,
+				'FIELD_NAME': 'dam_area',
+				'FIELD_TYPE': 0,  # 0 = float
+				'FIELD_LENGTH': 10,
+				'FIELD_PRECISION': 3,
+				'NEW_FIELD': True,
+				'FORMULA': '$area',
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("damsheds_area.shp")
+			}
+			outputs['damsheds_area'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(9)
+			# Attach 'dam_area' back to dam points
+			alg_params = {
+				'INPUT': outputs['dams_edited'],
+				'FIELD': 'row_index',
+				'INPUT_2': outputs['damsheds_area'],
+				'FIELD_2': 'DN',
+				'FIELDS_TO_COPY': ['dam_area'],
+				'METHOD': 1,  # 1 = one-to-one
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:dams_points_area'
+			}
+			dams_points_area = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(10)
+			processing.run('native:createspatialindex', {'INPUT': dams_points_area}, context=context, feedback=None, is_child_algorithm=True)
+			feedback.setCurrentStep(11)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans calcul superficie barrage : {str(e)}"))
 
-			if model_feedback.isCanceled():
+		if feedback.isCanceled():
+			return {}
+
+		feedback.setProgressText(self.tr(f"Localisation des barrages et compte des barrages et structures."))
+		try :
+			# Locate dam points in watersheds and sum total dam area per watershed
+			alg_params = {
+				'INPUT': watersheds,
+				'PREDICATE': [1],  # 1 = contains
+				'JOIN': dams_points_area,
+				'JOIN_FIELDS': ['dam_area'],
+				'SUMMARIES': [5],  # 5 = sum
+				'PREFIX': '',
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:watersheds'
+			}
+			watersheds = processing.run("qgis:joinbylocationsummary", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(12)
+			# Create 1km buffer on stream network
+			alg_params = {
+				'INPUT': parameters[self.STREAM_NET],
+				'DISTANCE': 1000,
+				'SEGMENTS': 5,
+				'END_CAP_STYLE': 0,  # 0 = Round
+				'JOIN_STYLE': 0,  # 0 = Round
+				'MITER_LIMIT': 2,
+				'DISSOLVE': False,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("buffer1km.shp")
+			}
+			outputs['buffer1km'] = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(13)
+			processing.run('native:createspatialindex', {'INPUT': outputs['buffer1km']}, context=context, feedback=None, is_child_algorithm=True)
+			feedback.setCurrentStep(14)
+			# Intersect and dissolve watershed and buffer layers to generate 1km watershed buffer
+			watersheds1km = self.buffer_streams(outputs['buffer1km'], watersheds, context=context, feedback=None)
+			feedback.setCurrentStep(15)
+			# Count number of dams in 1km watershed buffer
+			alg_params = {
+				'POLYGONS': watersheds1km,
+				'POINTS': parameters[self.DAMS],
+				'FIELD': 'dam_count1km',
+				'OUTPUT': 'memory:watersheds1km'
+			}
+			watersheds1km = processing.run("native:countpointsinpolygon", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(16)
+			# Count number structures in 1km watershed buffer
+			alg_params = {
+				'POLYGONS': watersheds1km,
+				'POINTS': parameters[self.STRUCTS],
+				'FIELD': 'struct_count1km',
+				'OUTPUT': 'memory:watersheds1km'
+			}
+			watersheds1km = processing.run("native:countpointsinpolygon", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(17)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans localisation barrage et compte : {str(e)}"))
+
+		if feedback.isCanceled():
 				return {}
 
-			# Get feature Id
-			fid = feature[self.ID_FIELD]
-
-			# Extract segment and snap segment outlet to raster
+		feedback.setProgressText(self.tr(f"Création buffers de largeur."))
+		try :
+			# Join stream network river length ('Long_km') to watersheds1km for F1 calculation
 			alg_params = {
-				'FIELD': self.ID_FIELD,
-				'INPUT': outputs['SnappedOutlets'],
-				'OPERATOR': 0,  # =
-				'VALUE': str(fid),
-				'OUTPUT':  QgsProcessingUtils.generateTempFilename("outlet.shp")
+				'INPUT': watersheds1km,
+				'FIELD': 'DN',
+				'INPUT_2': parameters[self.STREAM_NET],
+				'FIELD_2': 'fid',
+				'FIELDS_TO_COPY': ['Long_km'],
+				'METHOD': 1,  # 1 = one-to-one
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:watersheds1km'
 			}
-			outputs['SegmentOutlet'] = processing.run('native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-
-			# comput segment Watershed
+			watersheds1km = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(18)
+			# Compute mean stream width for stream network segments
+			ptref_id = parameters[self.PTREFS]
+			expr = f"coalesce(array_mean(overlay_nearest('{ptref_id}', \"Largeur_mod\", limit:=-1, max_distance:=5)), 5)"
 			alg_params = {
-				#'d8_pntr': outputs['Compute_d8_grhq']['d8pointer'],
-				'd8_pntr': parameters[self.D8],
-				'esri_pntr': False,
-				'pour_pts': outputs['SegmentOutlet'],
-				'output': QgsProcessingUtils.generateTempFilename("watershed.tif")
+				'INPUT': parameters[self.STREAM_NET],
+				'FIELD_NAME': 'mean_width',
+				'FIELD_TYPE': 0,  # 0 = float
+				'FIELD_LENGTH': 10,
+				'FIELD_PRECISION': 3,
+				'NEW_FIELD': True,
+				'FORMULA': expr,
+				'OUTPUT': 'memory:stream_w_mean'
 			}
-			outputs['SegmentWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)['output']
-
-			if model_feedback.isCanceled():
-				return {}
-
-			#Polygonize Watershed
-			outputs['VectorWatershed'] = self.polygonize_raster(outputs['SegmentWatershed'], context, feedback=None, output=QgsProcessingUtils.generateTempFilename("vector1.shp"))
-
-			# Compute watershed Area
-			watershed_area = self.get_poly_area(outputs['VectorWatershed'], context, feedback=None)
-
-			# Compute landuse areas
-			(land_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['VectorWatershed'], context, feedback=None)
-
-			#Compute A1
-			indiceA1 = self.computeA1(land_area, anthro_area, agri_area, forest_area)
-
-			if model_feedback.isCanceled():
-				return {}
-
-			# Extract dams in segment watershed
-			segment_dams = self.clip_points_to_poly(parameters[self.DAMS],outputs['VectorWatershed'], context, feedback=None)
-
-			# Compute Dams watershed
+			stream_w_mean = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(19)
+			# Create 'Mean width x 2.5' buffer
+			expr = 'buffer($geometry, "mean_width" * 2.5, 30, \'round\', \'miter\', 2)'
 			alg_params = {
-				#'d8_pntr': outputs['Compute_d8_grhq']['d8pointer'],
-				'd8_pntr': parameters[self.D8],
-				'esri_pntr': False,
-				'pour_pts': segment_dams,
-				'output': QgsProcessingUtils.generateTempFilename("subwshed.tif"),
+				'INPUT': stream_w_mean,
+				'EXPRESSION': expr,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename('buffer2x.shp')
 			}
-			outputs['DamsWatershed'] = processing.run('wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)['output']
-
-			#Polygonize Dams Watershed
-			outputs['VectorDamsWatershed'] = self.polygonize_raster(outputs['DamsWatershed'], context, None, QgsProcessingUtils.generateTempFilename("vector2.shp"))
-
-			dams_area = self.get_poly_area(outputs['VectorDamsWatershed'], context, feedback=None)
-			# Compute A2
-			indiceA2 = self.computeA2(watershed_area, dams_area)
-
-
-
-			# Transform Feature to vector Layer
-			segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
-
-			# Create Buffer
+			outputs['buffer2x'] = processing.run('qgis:geometrybyexpression', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(20)
+			# Compute landuse within 2.5x mean width buffer
+			watersheds2x = self.compute_landuse_areas(outputs['reclassifiedlanduse'], outputs['buffer2x'], context=context, feedback=None)
+			feedback.setCurrentStep(21)
+			# Join dam_count1km to watersheds2x
 			alg_params = {
-				'INPUT': segment,
-				'DISTANCE':1000,
-				'SEGMENTS':5,'END_CAP_STYLE':0,
-				'JOIN_STYLE':0,'MITER_LIMIT':2,
-				'DISSOLVE':True,
-				'OUTPUT': QgsProcessingUtils.generateTempFilename("Buffer_1km")
+				'INPUT': watersheds2x,
+				'FIELD': 'Id',
+				'INPUT_2': watersheds1km,
+				'FIELD_2': 'Id',
+				'FIELDS_TO_COPY': ['dam_count1km'],
+				'METHOD': 1,  # 1 = one-to-one
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:watersheds2x'
 			}
-			outputs['Buffer_1km'] = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			watersheds2x = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(22)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans création des buffers de largeur : {str(e)}"))
 
-			if model_feedback.isCanceled():
-				return {}
+		if feedback.isCanceled():
+			return {}
 
-			# Clip watershed by buffer mask
-			alg_params = {
-				'INPUT': outputs['VectorWatershed'],
-				'OVERLAY': outputs['Buffer_1km'],
-				'OUTPUT': QgsProcessingUtils.generateTempFilename("buffer2.shp"),
-				}
-			outputs['Watershed_1km'] = processing.run("native:clip", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		# Store formula expressions for Indices A1, A2, A3, and F1
+		# Indice A1 formula
+		a1_formula = """
+		CASE
+			WHEN "watershed_area" = 0 THEN 2
+			WHEN ("forest_area"/"watershed_area") <= 0.1 THEN 5
+			WHEN ("forest_area"/"watershed_area") < 0.33 THEN 4
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") < 0.33 THEN 3
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") >= 0.33 THEN 2
+			WHEN ("forest_area"/"watershed_area") < 0.9 THEN 1
+			ELSE 0
+		END
+		"""
 
-			# Count number of dames in watershed
-			dams = self.parameterAsVectorLayer(parameters, self.DAMS, context)
-			alg_params = {
-				'INPUT':dams,
-				'PREDICATE':[6],
-				'INTERSECT':outputs['Watershed_1km'],
-				'METHOD':0
-			}
-			processing.run("native:selectbylocation", alg_params, context=context, feedback=None, is_child_algorithm=True)
-			dam_count_1km = dams.selectedFeatureCount()
+		# Indice A2 formula. Treat null dam areas as 0.
+		a2_formula = """
+		CASE
+			WHEN "watershed_area" = 0 THEN 2
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.05 THEN 0
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.33 THEN 2
+			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.66 THEN 3
+			ELSE 4
+		END
+		"""
 
-			# Count number of structurs
-			structs = self.parameterAsVectorLayer(parameters, self.STRUCTS, context)
-			alg_params = {
-				'INPUT':structs,
-				'PREDICATE':[6],
-				'INTERSECT':outputs['Watershed_1km'],
-				'METHOD':0
-			}
-			processing.run("native:selectbylocation", alg_params, context=context, feedback=None, is_child_algorithm=True)
-			struct_count = structs.selectedFeatureCount()
-
-			# Compute F1
-			indiceF1 = self.computeF1(feature, struct_count)
-
-
-			if model_feedback.isCanceled():
-				return {}
-
-			# Get Segment Mean width from PtRefs
-			feature_mean_width = self.ptrefs_mean_width(feature, source, parameters[self.PTREFS])
-
-			# River buffer 2x Width
-			params = {
-				'INPUT':segment,
-				'DISTANCE':feature_mean_width * 2.5,
-				'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-				'OUTPUT' : QgsProcessingUtils.generateTempFilename("Buffer2.shp")
-			}
-			outputs['SegmentBuffer'] = processing.run("native:buffer", params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-
-			# Segment proximity area Landuse
-			(land_area, anthro_area, agri_area, forest_area) = self.compute_landuse_areas(outputs['ReclassifiedLanduse'], outputs['SegmentBuffer'], context, feedback=None)
-
-			#Compute A3
-			indiceA3 = self.computeA3(land_area, anthro_area,agri_area,dam_count_1km)
-
-			# Add Computed indices to new featuer
-			feature.setAttributes(
-					feature.attributes() + [indiceA1, indiceA2, indiceA3, indiceF1]
+		# Indice A3 formula
+		a3_formula = """
+			with_variable(
+			'penalty',
+			CASE
+				WHEN "dam_count1km" = 1 THEN 2
+				WHEN "dam_count1km" > 1 THEN 4
+				ELSE 0
+			END,
+			CASE
+				WHEN "land_area" = 0 THEN @penalty + 2
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.9 THEN @penalty + 4
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.66 THEN @penalty + 3
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.33 THEN @penalty + 2
+				WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.1 THEN @penalty + 1
+				ELSE @penalty
+			END	
 			)
+			"""
 
-			# Add computed feature to Output
-			sink.addFeature(feature, QgsFeatureSink.FastInsert)
+		# Indice F1 formula
+		f1_formula = """
+		CASE
+			WHEN "Long_km" IS NULL OR "Long_km" = 0 OR "struct_count1km" IS NULL OR "struct_count1km" = 0 THEN 0
+			WHEN ("struct_count1km"/"Long_km") <= 1 THEN 2
+			ELSE 4
+		END
+		"""
 
-			# Increments the progress bar
-			if total_features != 0:
-				progress = int(100*(current/total_features))
-			else:
-				progress = 0
-			model_feedback.setProgress(progress)
-			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+		feedback.setProgressText(self.tr(f"Calcul des indices A1, A2, A3 et F1."))
+		try :
+			# Compute A1
+			alg_params = {
+				'INPUT': watersheds,
+				'FIELD_NAME': 'Indice A1',
+				'FIELD_TYPE': 2,  # 2 = Integer
+				'FIELD_LENGTH': 3,
+				'FIELD_PRECISION': 0,
+				'NEW_FIELD': True,
+				'FORMULA': a1_formula,
+				'OUTPUT': 'memory:watersheds'
+			}
+			watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(23)
+			# Compute A2
+			alg_params = {
+				'INPUT': watersheds,
+				'FIELD_NAME': 'Indice A2',
+				'FIELD_TYPE': 2,  # 2 = integer
+				'FIELD_LENGTH': 3,
+				'FIELD_PRECISION': 0,
+				'NEW_FIELD': True,
+				'FORMULA': a2_formula,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds.shp")
+			}
+			outputs['watersheds'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(24)
+			# Compute A3
+			alg_params = {
+				'INPUT': watersheds2x,
+				'FIELD_NAME': 'Indice A3',
+				'FIELD_TYPE': 2,  # 2 = integer
+				'FIELD_LENGTH': 3,
+				'FIELD_PRECISION': 0,
+				'NEW_FIELD': True,
+				'FORMULA': a3_formula,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds2x.shp")
+			}
+			outputs['watersheds2x'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(25)
+			# Compute F1
+			alg_params = {
+				'INPUT': watersheds1km,
+				'FIELD_NAME': 'Indice F1',
+				'FIELD_TYPE': 2,  # 2 = integer
+				'FIELD_LENGTH': 3,
+				'FIELD_PRECISION': 0,
+				'NEW_FIELD': True,
+				'FORMULA': f1_formula,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds1km.shp")
+			}
+			outputs['watersheds1km'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(26)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul des indices : {str(e)}"))
+
+		if feedback.isCanceled():
+			return {}
+
+		feedback.setProgressText(self.tr(f"Sortie des résultats."))
+		try :
+			# Convert watershed features to vector layers
+			watersheds_lyr = QgsVectorLayer(outputs['watersheds'], 'ws', 'ogr')
+			watersheds2x_lyr = QgsVectorLayer(outputs['watersheds2x'], 'ws2x', 'ogr')
+			watersheds1km_lyr = QgsVectorLayer(outputs['watersheds1km'], 'ws1km', 'ogr')
+			# Map feature ID and index values for each watershed layer
+			a1_map = {f['DN']: f['Indice A1'] for f in watersheds_lyr.getFeatures()}
+			a2_map = {f['DN']: f['Indice A2'] for f in watersheds_lyr.getFeatures()}
+			a3_map = {f['Segment']: f['Indice A3'] for f in watersheds2x_lyr.getFeatures()}
+			f1_map = {f['DN']: f['Indice F1'] for f in watersheds1km_lyr.getFeatures()}
+			# Write final indices to sink using map
+			for feat in source.getFeatures():
+				seg = feat['Segment']
+				vals = feat.attributes()
+				vals += [
+					a1_map.get(seg, None),
+					a2_map.get(seg, None),
+					a3_map.get(seg, None),
+					f1_map.get(seg, None),
+				]
+				feat.setAttributes(vals)
+				sink.addFeature(feat, QgsFeatureSink.FastInsert)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans la sortie des résultats : {str(e)}"))
 
 		# Ending message
-		model_feedback.setProgressText(self.tr('\tProcessus terminé pour calcul de A1, A2, A3 et F1 !'))
+		feedback.setProgressText(self.tr('\tProcessus terminé pour calcul de A1, A2, A3 et F1 !'))
 
 		return {self.OUTPUT : dest_id}
 
@@ -333,7 +529,7 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		# Output : layer_id
 		alg_params = {
 			'BAND': 1,
-			'EIGHT_CONNECTEDNESS': False,
+			'EIGHT_CONNECTEDNESS': True,
 			'EXTRA': '',
 			'FIELD': 'DN',
 			'INPUT': raster_id,
@@ -341,144 +537,117 @@ class NetworkWatershedFromDem(QgsProcessingAlgorithm):
 		}
 		return processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
-	def clip_raster(self, raster_id, mask_id, context, feedback, output=None):
+	def generate_basin_polygons(self, d8_pointer, pour_points, temp_prefix, CRS, context, feedback):
+		# Inputs: d8 pointer, Pour points, Temp prefix
+		# Output: Merged watershed polygon
 
+		# Unnest basins into multiple raster layers
+		prefix = QgsProcessingUtils.generateTempFilename(temp_prefix)
 		alg_params = {
-		'ALPHA_BAND': False,
-		'CROP_TO_CUTLINE': True,
-		'DATA_TYPE': 0,  # Use Input Layer Data Type
-		'EXTRA': '',
-		'INPUT': raster_id,
-		'KEEP_RESOLUTION': True,
-		'MASK': mask_id,
-		'MULTITHREADING': False,
-		'NODATA': None,
-		'OPTIONS': '',
-		'SET_RESOLUTION': False,
-		'SOURCE_CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
-		'TARGET_CRS': 'ProjectCrs',
-		'TARGET_EXTENT': None,
-		'X_RESOLUTION': None,
-		'Y_RESOLUTION': None,
-		'OUTPUT' : QgsProcessingUtils.generateTempFilename("Raster_clip.tif")
+			'd8_pntr': d8_pointer,
+			'pour_pts': pour_points,
+			'esri_pntr': False,
+			'output': prefix + '.tif'
 		}
-		return processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		output_tif = processing.run('wbt:UnnestBasins', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
 
-	def compute_landuse_areas(self, clipped_landuse_id, mask_id, context, feedback):
-		# Clip Raster
-		clipped = self.clip_raster(clipped_landuse_id, mask_id, context, feedback)
+		# Find all watershed rasters and sort them by index
+		base = Path(output_tif).with_suffix('')
+		rasters = sorted(
+			base.parent.glob(f"{base.stem}_*.tif"),
+			key=lambda p: int(p.stem.rsplit('_', 1)[-1])
+		)
 
+		# Polygonize each raster layer
+		vecs = []
+		for ras in rasters:
+			shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}_poly.shp")
+			poly = self.polygonize_raster(raster_id=str(ras), context=context, feedback=feedback, output=shp)
+
+			# Fix geometries and return layer
+			alg_params = {
+				'INPUT': poly,
+				'OUTPUT': f'memory:{Path(shp).stem}_fixed'
+			}
+			fixed = processing.run('native:fixgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			vecs.append(fixed)
+
+		# Merge the basin polygons into one layer
+		merge_shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}.shp")
 		alg_params = {
-			'BAND': 1,
-			'INPUT': clipped,
-			'OUTPUT_TABLE': QgsProcessingUtils.generateTempFilename("table.gpkg"),
+			'LAYERS': vecs,
+			'CRS': CRS,
+			'OUTPUT': merge_shp
 		}
-		table = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT_TABLE']
-		table = QgsVectorLayer(table, 'table', 'ogr')
-		class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
-		water_area = class_areas.get(4, 0)
-		anthro_area = class_areas.get(3, 0)
-		agri_area = class_areas.get(2, 0)
-		forest_area = class_areas.get(1, 0)
-		land_area = anthro_area + agri_area + forest_area
-		return (land_area, anthro_area, agri_area, forest_area)
+		merged = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=feedback,	is_child_algorithm=True)['OUTPUT']
 
-	def get_poly_area(self, vlayer_id, context, feedback):
-		vlayer = QgsVectorLayer(vlayer_id, "Poly", "ogr")
-		tot_area = sum([feat.geometry().area() for feat in vlayer.getFeatures()])
-		return tot_area
+		# Load merged result as QgsVectorLayer
+		merged_layer = QgsVectorLayer(merged, f"{temp_prefix}_merged", "ogr")
 
-	def clip_points_to_poly(self,points_id, polygon_id, context, feedback, output=None):
-		# Clip Dams
-		alg_params = {
-			'INPUT': points_id,
-			'INTERSECT': polygon_id,
-			'PREDICATE': [6],  # are within
-			'OUTPUT': QgsProcessingUtils.generateTempFilename("Dams_clip.shp")
-		}
+		# Create spatial index
+		processing.run('native:createspatialindex', {'INPUT': merged_layer}, context=context, feedback=None, is_child_algorithm=True)
+		return merged_layer
 
-		extracted_dams = processing.run('native:extractbylocation', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-		return extracted_dams
+	def compute_landuse_areas(self, landuse_raster, basin_layer, context, feedback):
+			# Inputs: Landuse raster, Basin polygon
+			# Output: Landuse counts (m²)
 
-	def computeA1(self, land_area, anthro_area, agri_area, forest_area):
+			# Zonal histogram: produces pixel counts as fields lc_1, lc_2, lc_3, lc_4
+			alg_params = {
+				'INPUT_RASTER': landuse_raster,
+				'RASTER_BAND': 1,
+				'INPUT_VECTOR': basin_layer,
+				'COLUMN_PREFIX': 'lc_',
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			zonalhist = processing.run('qgis:zonalhistogram', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-		if land_area == 0:
-			return 2
-		forest_ratio = forest_area / land_area
-		agri_ratio = agri_area / land_area
+			# Multiply pixel counts for each land class by 100 to get area in m²
+			lc_fields = ['lc_1', 'lc_2', 'lc_3', 'lc_4']
+			area_fields = ['forest_area', 'agri_area', 'anthro_area', 'water_area']
 
-		if forest_ratio <= 0.1:
-			return 5
-		elif forest_ratio < 0.33:
-			return 4
-		elif forest_ratio <= 0.66:
-			return 3 if agri_ratio < 0.33 else 2
-		elif forest_ratio < 0.9:
-			return 1
-		else:
-			return 0
+			for i, field in enumerate(lc_fields):
+				alg_params = {
+					'INPUT': zonalhist,
+					'FIELD_NAME': area_fields[i],
+					'FIELD_TYPE': 0,  # Float
+					'FIELD_LENGTH': 20,
+					'FIELD_PRECISION': 2,
+					'FORMULA': f'"{field}" * 100',
+					'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+				}
+				zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
-	def computeA2(self, main_area, dams_area):
-		if main_area == 0 :
-			return 2
-		ratio = dams_area / main_area
+			# Compute total land area = forest + agri + anthro
+			alg_params = {
+				'INPUT': zonalhist,
+				'FIELD_NAME': 'land_area',
+				'FIELD_TYPE': 0,  # Float
+				'FIELD_LENGTH': 20,
+				"FIELD_PRECISION": 2,
+				'FORMULA': '"forest_area" + "agri_area" + "anthro_area"',
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			return zonalhist
 
+	def buffer_streams(self, buffer, watershed, context, feedback):
+			# Input: Buffer layer, watershed layer
+			# Output: Buffered watershed layer
 
-		if ratio < 0.05:
-			return 0
-		elif 0.05 <= ratio < 0.33:
-			return 2
-		elif 0.33 <= ratio < 0.66:
-			return 3
-		elif 0.66 <= ratio:
-			return 4
+			# Intersect watershed and buffer layers
+			alg_params = {
+				'INPUT': watershed,
+				'OVERLAY': buffer,
+				'OUTPUT': 'memory:ws_buff'
+			}
+			ws_buff = processing.run('qgis:intersection', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-	def computeF1(self, feature, struct_count):
-		length = feature.geometry().length()
-		if not length or not struct_count:
-			return 0
-
-		ratio = struct_count / length * 1000
-
-		if ratio <= 1:
-			return 2
-		elif ratio > 1:
-			return 4
-
-	def ptrefs_mean_width(self, feature, source, PtRef_id, width_field='Largeur_mod', context=None, feedback=None):
-		expr = QgsExpression(f"""
-				array_mean(overlay_nearest('{PtRef_id}', {width_field}, limit:=-1, max_distance:=5))
-					""")
-		feat_context = QgsExpressionContext()
-		feat_context.setFeature(feature)
-
-		scopes = QgsExpressionContextUtils.globalProjectLayerScopes(source)
-		feat_context.appendScopes(scopes)
-
-		mean_width = expr.evaluate(feat_context)
-		if not mean_width : mean_width = 5
-
-		return mean_width
-
-	def computeA3(self, land_area, anthro_area, agri_area, dam_count):
-
-		dam_penality = 0
-		if dam_count == 1:
-			dam_penality = 2
-		elif dam_count > 1:
-			dam_penality = 4
-
-		if land_area == 0:
-			return dam_penality + 2
-
-		ratio = (anthro_area + agri_area) / land_area
-
-		if ratio >= 0.9:
-			return dam_penality + 4
-		elif ratio >= 0.66:
-			return dam_penality + 3
-		elif ratio >= 0.33:
-			return dam_penality + 2
-		elif ratio >= 0.1:
-			return dam_penality + 1
-		return dam_penality
+			# Dissolve intersected layer by buffer fid
+			alg_params = {
+				'INPUT': ws_buff,
+				'FIELD': ['fid'],
+				'OUTPUT': 'memory:ws_dissolved'
+			}
+			ws_dissolved = processing.run('native:dissolve', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			return ws_dissolved
