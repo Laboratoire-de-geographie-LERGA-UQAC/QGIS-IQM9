@@ -1,5 +1,3 @@
-from tempfile import NamedTemporaryFile as Ntf
-import os
 import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (
@@ -14,11 +12,10 @@ from qgis.core import (
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink,
 	QgsProcessingMultiStepFeedback,
-	)
+)
 
 
 class IndiceA1(QgsProcessingAlgorithm):
-	ID_FIELD = 'fid'
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
@@ -40,12 +37,12 @@ class IndiceA1(QgsProcessingAlgorithm):
 				return False, self.tr('Vous avez choisi d’utiliser la couche de sous-BV, mais elle n’est pas fournie.')
 		else:
 			if parameters['D8'] is None or parameters['dams'] is None or parameters['landuse'] is None :
-				return False, 'Vous devez fournir les couches nécessaires (WBT D8 Pointer, Barrages et Util. du terr.) pour créer la couche de sous-BV.'
+				return False, self.tr('Vous devez fournir les couches nécessaires (WBT D8 Pointer, Barrages et Util. du terr.) pour créer la couche de sous-BV.')
 		return True, ''
 
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		feedback = QgsProcessingMultiStepFeedback(9, model_feedback)
+		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 		outputs = {}
 
 		# Define stream netwprk as source for data output
@@ -99,7 +96,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 		feedback.setCurrentStep(2)
 		if feedback.isCanceled():
 			return {}
-		
+
 		# Getting results ready to output
 		feedback.setProgressText(self.tr(f"Sortie des résultats."))
 		try :
@@ -116,12 +113,12 @@ class IndiceA1(QgsProcessingAlgorithm):
 				sink.addFeature(feat, QgsFeatureSink.FastInsert)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans la sortie des résultats : {str(e)}"))
-		feedback.setCurrentStep(2)
+		feedback.setCurrentStep(3)
 		if feedback.isCanceled():
 			return {}
 
 		# Ending message
-		feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
+		feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
 		return {self.OUTPUT : dest_id}
 
@@ -176,16 +173,16 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 def computeA1(watersheds, context, feedback) :
 	a1_formula = """
-	CASE
-		WHEN "watershed_area" = 0 THEN 2
-		WHEN ("forest_area"/"watershed_area") <= 0.1 THEN 5
-		WHEN ("forest_area"/"watershed_area") < 0.33 THEN 4
-		WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") < 0.33 THEN 3
-		WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") >= 0.33 THEN 2
-		WHEN ("forest_area"/"watershed_area") < 0.9 THEN 1
-		ELSE 0
-	END
-	"""
+		CASE
+			WHEN "watershed_area" = 0 THEN 2
+			WHEN ("forest_area"/"watershed_area") <= 0.1 THEN 5
+			WHEN ("forest_area"/"watershed_area") < 0.33 THEN 4
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") < 0.33 THEN 3
+			WHEN ("forest_area"/"watershed_area") <= 0.66 AND ("agri_area"/"watershed_area") >= 0.33 THEN 2
+			WHEN ("forest_area"/"watershed_area") < 0.9 THEN 1
+			ELSE 0
+		END
+		"""
 	alg_params = {
 		'INPUT': watersheds,
 		'FIELD_NAME': 'Indice A1',
