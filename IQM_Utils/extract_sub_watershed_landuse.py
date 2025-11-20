@@ -205,7 +205,7 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Extraction des sous bassins versants et utilisation du territoire\n Script préparatoire pour les indices A1, A2, A3 qui extrait les sous bassin versant du réseau hydrographique et sur l'utilisation du territoire en une couche vectorielle\n" \
+			"Extraction des sous bassins versants et utilisation du territoire\n Script préparatoire pour les indices A1 et A2 qui extrait les sous bassin versant du réseau hydrographique et sur l'utilisation du territoire en une couche vectorielle\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
