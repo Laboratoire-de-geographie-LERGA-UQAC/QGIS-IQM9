@@ -1,9 +1,4 @@
-"""
-Model exported as python.
-Name : Renewed_Compute_IQM
-Group :
-With QGIS : 33000
-"""
+
 import processing
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
@@ -16,17 +11,17 @@ from qgis.core import (
 )
 
 
-class Renewed_compute_iqm(QgsProcessingAlgorithm):
+class compute_iqm(QgsProcessingAlgorithm):
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', self.tr('Bande riveraine (peuplement forestier; MELCCFP)'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('barrages', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('cours_eau', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
-		self.addParameter(QgsProcessingParameterVectorLayer('ptref__largeur', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-		self.addParameter(QgsProcessingParameterRasterLayer('utilisation_du_territoir', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 	def processAlgorithm(self, parameters, context, model_feedback):
@@ -39,8 +34,8 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		# Calcule pointeur D8
 		alg_params = {
 			'dem': parameters['dem'],
-			'stream_network': parameters['cours_eau'],
-			'D8pointer': QgsProcessing.TEMPORARY_OUTPUT
+			'stream_network': parameters['stream_network'],
+			#'D8pointer': QgsProcessing.TEMPORARY_OUTPUT
 		}
 		outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
@@ -50,7 +45,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
 		# Filtrer structures
 		alg_params = {
-			'cours_eau': parameters['cours_eau'],
+			'cours_eau': parameters['stream_network'],
 			'routes': parameters['routes'],
 			'structures': parameters['structures'],
 			'New_structures': QgsProcessing.TEMPORARY_OUTPUT
@@ -64,10 +59,10 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		# A1 A2 A3 F1
 		alg_params = {
 			'd8': outputs['CalculePointeurD8']['D8pointer'],
-			'dams': parameters['barrages'],
-			'landuse': parameters['utilisation_du_territoir'],
-			'ptrefs_largeur': parameters['ptref__largeur'],
-			'stream_network': parameters['cours_eau'],
+			'dams': parameters['dams'],
+			'landuse': parameters['landuse'],
+			'ptrefs_largeur': parameters['ptref_widths'],
+			'stream_network': parameters['stream_network'],
 			'structures': outputs['FiltrerStructures']['New_structures'],
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
@@ -91,8 +86,8 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		# Indice F2
 		alg_params = {
 			'anthropic_layers': parameters['routes'],
-			'landuse': parameters['utilisation_du_territoir'],
-			'ptref_widths': parameters['ptref__largeur'],
+			'landuse': parameters['landuse'],
+			'ptref_widths': parameters['ptref_widths'],
 			'rivnet': outputs['IndiceA4']['OUTPUT'],
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
@@ -105,8 +100,8 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		# Indice F3
 		alg_params = {
 			'anthropic_layers': parameters['routes'],
-			'landuse': parameters['utilisation_du_territoir'],
-			'ptref_widths': parameters['ptref__largeur'],
+			'landuse': parameters['landuse'],
+			'ptref_widths': parameters['ptref_widths'],
 			'rivnet': outputs['IndiceF2']['OUTPUT'],
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 		}
@@ -118,7 +113,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 
 		# Indice F4
 		alg_params = {
-			'ptref_widths': parameters['ptref__largeur'],
+			'ptref_widths': parameters['ptref_widths'],
 			'ratio': 2.5,
 			'rivnet': outputs['IndiceF3']['OUTPUT'],
 			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
@@ -132,7 +127,7 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		# Indice F5
 		alg_params = {
 			'bande_riveraine_polly': parameters['bande_riv'],
-			'ptref_widths': parameters['ptref__largeur'],
+			'ptref_widths': parameters['ptref_widths'],
 			'ratio': 2.5,
 			'rivnet': outputs['IndiceF4']['OUTPUT'],
 			'transectsegment': 25,
@@ -205,4 +200,4 @@ class Renewed_compute_iqm(QgsProcessingAlgorithm):
 		return QCoreApplication.translate('Processing', string)
 
 	def createInstance(self):
-		return Renewed_compute_iqm()
+		return compute_iqm()
