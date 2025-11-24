@@ -132,7 +132,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 
 	def name(self):
-		return 'Indice A1'
+		return 'indicea1'
 
 
 	def displayName(self):

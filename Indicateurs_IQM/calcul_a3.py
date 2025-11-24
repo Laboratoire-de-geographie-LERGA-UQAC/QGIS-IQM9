@@ -257,7 +257,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 		return IndiceA3()
 
 	def name(self):
-		return 'Indice A3'
+		return 'indicea3'
 
 	def displayName(self):
 		return self.tr('Indice A3')
