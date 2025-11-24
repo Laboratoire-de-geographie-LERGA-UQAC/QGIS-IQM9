@@ -1,8 +1,10 @@
 
 import processing
+import time
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
 	QgsProcessing,
+	QgsProcessingUtils,
 	QgsProcessingAlgorithm,
 	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterVectorLayer,
@@ -27,147 +29,283 @@ class compute_iqm(QgsProcessingAlgorithm):
 	def processAlgorithm(self, parameters, context, model_feedback):
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
 		# overall progress through the model
-		feedback = QgsProcessingMultiStepFeedback(9, model_feedback)
+		feedback = QgsProcessingMultiStepFeedback(13, model_feedback)
+		current_step = 0
 		results = {}
 		outputs = {}
 
-		# Calcule pointeur D8
-		alg_params = {
-			'dem': parameters['dem'],
-			'stream_network': parameters['stream_network'],
-			#'D8pointer': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		# =======================$|  Preprocessing  |$=======================
+		# (intermediate results required for calculating indices)
 
-		feedback.setCurrentStep(1)
+		feedback.setProgressText(self.tr(f"Initialisation des étapes de prétraitement..."))
+
+		# 	Compute D8 pointer
+		feedback.setProgressText(self.tr(f"- Création du WBT D8 pointer"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'dem': parameters['dem'],
+				'stream_network': parameters['stream_network'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT 
+			}
+			outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul du WBT D8 pointer : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul WBT D8 pointer", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Filtrer structures
-		alg_params = {
-			'cours_eau': parameters['stream_network'],
-			'routes': parameters['routes'],
-			'structures': parameters['structures'],
-			'New_structures': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['FiltrerStructures'] = processing.run('script:filterstructures', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
-		feedback.setCurrentStep(2)
+		# 	Filter structures
+		feedback.setProgressText(self.tr(f"- Extraction des structures filtrées"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'cours_eau': parameters['stream_network'],
+				'routes': parameters['routes'],
+				'structures': parameters['structures'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['FiltrerStructures'] = processing.run('script:filterstructures', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le filtre des structures : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "filtre struct", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# A1 A2 A3 F1
-		alg_params = {
-			'd8': outputs['CalculePointeurD8']['D8pointer'],
-			'dams': parameters['dams'],
-			'landuse': parameters['landuse'],
-			'ptrefs_largeur': parameters['ptref_widths'],
-			'stream_network': parameters['stream_network'],
-			'structures': outputs['FiltrerStructures']['New_structures'],
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['A1A2A3F1'] = processing.run('script:calculA123', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-
-		feedback.setCurrentStep(3)
+		# 	Extract sub watersheds
+		feedback.setProgressText(self.tr(f"- Extraction de la couche de sous-BV"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'stream_network' : parameters['stream_network'],
+				'D8' : outputs['CalculePointeurD8']['OUTPUT'],
+				'dams' : parameters['dams'],
+				'landuse' : parameters['landuse'],
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+			}
+			watersheds_data = processing.run('script:extract_subwatershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			watersheds = QgsProcessingUtils.mapLayerFromString(watersheds_data, context)
+			if not watersheds or not watersheds.isValid() :
+					# Verifies if the created layer is valid
+					feedback.reportError(self.tr("La couche watersheds est invalide."))
+					return {}
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans l'extraction des sous-BV : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "extract sous-BV", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Indice A4
-		alg_params = {
-			'INPUT': outputs['A1A2A3F1']['OUTPUT'],
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['IndiceA4'] = processing.run('script:indicea4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		# =====================$|  Index calculation  |$=====================
 
-		feedback.setCurrentStep(4)
+		feedback.setProgressText(self.tr(f"Calcul des indices..."))
+
+		# 	Index A1
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice A1"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'SUB_WATERSHED_GIVEN' : True,
+				'watersheds' : watersheds,
+				'stream_network' : parameters['stream_network'],
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceA1'] = processing.run('script:indicea1', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de A1 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul A1", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Indice F2
-		alg_params = {
-			'anthropic_layers': parameters['routes'],
-			'landuse': parameters['landuse'],
-			'ptref_widths': parameters['ptref_widths'],
-			'rivnet': outputs['IndiceA4']['OUTPUT'],
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['IndiceF2'] = processing.run('script:indicef2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
-		feedback.setCurrentStep(5)
+		# 	Index A2
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice A2"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'SUB_WATERSHED_GIVEN' : True,
+				'watersheds' : watersheds,
+				'stream_network' : outputs['IndiceA1']['OUTPUT'],
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceA2'] = processing.run('script:indicea2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de A2 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul A2", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Indice F3
-		alg_params = {
-			'anthropic_layers': parameters['routes'],
-			'landuse': parameters['landuse'],
-			'ptref_widths': parameters['ptref_widths'],
-			'rivnet': outputs['IndiceF2']['OUTPUT'],
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['IndiceF3'] = processing.run('script:indicef3', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
-		feedback.setCurrentStep(6)
+		# 	Index A3
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice A3"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'stream_network' : outputs['IndiceA2']['OUTPUT'],
+				'dams' : parameters['dams'],
+				'landuse' : parameters['landuse'],
+				'ptref_widths' : parameters['ptref_widths'],
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceA3'] = processing.run('script:indicea3', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de A3 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul A3", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Indice F4
-		alg_params = {
-			'ptref_widths': parameters['ptref_widths'],
-			'ratio': 2.5,
-			'rivnet': outputs['IndiceF3']['OUTPUT'],
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['IndiceF4'] = processing.run('script:indicef4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
-		feedback.setCurrentStep(7)
+		# 	Index A4
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice A4"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'INPUT': outputs['IndiceA3']['OUTPUT'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceA4'] = processing.run('script:indicea4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de A4 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul A4", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Indice F5
-		alg_params = {
-			'bande_riveraine_polly': parameters['bande_riv'],
-			'ptref_widths': parameters['ptref_widths'],
-			'ratio': 2.5,
-			'rivnet': outputs['IndiceF4']['OUTPUT'],
-			'transectsegment': 25,
-			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-		}
-		outputs['IndiceF5'] = processing.run('script:indicef5', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 
-		feedback.setCurrentStep(8)
+		# 	Index F1
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice F1"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'INPUT': outputs['IndiceA4']['OUTPUT'],
+				'structs' : outputs['FiltrerStructures']['OUTPUT'],
+				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceF1'] = processing.run('script:indicef1', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de F1 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul F1", feedback)
 		if feedback.isCanceled():
 			return {}
 
-		# Field calculator
-		alg_params = {
-			'FIELD_LENGTH': 2,
-			'FIELD_NAME': 'Score IQM',
-			'FIELD_PRECISION': 2,
-			'FIELD_TYPE': 0,  # Décimal (double)
-			'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 38',
-			'INPUT': outputs['IndiceF5']['OUTPUT'],
-			'OUTPUT': parameters['Iqm']
-		}
-		outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
-		results['Iqm'] = outputs['FieldCalculator']['OUTPUT']
 
-		feedback.setCurrentStep(9)
-		feedback.setProgressText(self.tr('\tProcessus terminé !'))
+		# 	Index F2
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice F2"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'anthropic_layers': parameters['routes'],
+				'ptref_widths': parameters['ptref_widths'],
+				'rivnet': outputs['IndiceF1']['OUTPUT'],
+				'landuse': parameters['landuse'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceF2'] = processing.run('script:indicef2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de F2 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul F2", feedback)
+		if feedback.isCanceled():
+			return {}
+
+
+		# Index F3
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice F3"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'ptref_widths': parameters['ptref_widths'],
+				'anthropic_layers': parameters['routes'],
+				'rivnet': outputs['IndiceF2']['OUTPUT'],
+				'landuse': parameters['landuse'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceF3'] = processing.run('script:indicef3', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de F3 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul F3", feedback)
+		if feedback.isCanceled():
+			return {}
+
+
+		# 	Index F4
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice F4"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'ptref_widths': parameters['ptref_widths'],
+				#'ratio': 2.5,
+				'rivnet': outputs['IndiceF3']['OUTPUT'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceF4'] = processing.run('script:indicef4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de F4 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul F4", feedback)
+		if feedback.isCanceled():
+			return {}
+
+
+		# 	Index F5
+		feedback.setProgressText(self.tr(f"- Calcul de l'indice F5"))
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'bande_riveraine_polly': parameters['bande_riv'],
+				'ptref_widths': parameters['ptref_widths'],
+				#'ratio': 2.5,
+				'rivnet': outputs['IndiceF4']['OUTPUT'],
+				#'transectsegment': 25,
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['IndiceF5'] = processing.run('script:indicef5', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de F5 : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul F5", feedback)
+		if feedback.isCanceled():
+			return {}
+
+
+		# ======================$|  IQM calculation  |$======================
+
+		feedback.setProgressText(self.tr(f"Calcul de l'IQM total des segments..."))
+
+		# Field calculator for total IQM calculation of each segments
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'FIELD_LENGTH': 2,
+				'FIELD_NAME': 'Score IQM9',
+				'FIELD_PRECISION': 2,
+				'FIELD_TYPE': 0,  # Décimal (double)
+				'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 40', # for each river segment : IQM = 1 - (total score/max score)
+				'INPUT': outputs['IndiceF5']['OUTPUT'],
+				'OUTPUT': parameters['Iqm']
+			}
+			outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+			results['Iqm'] = outputs['FieldCalculator']['OUTPUT']
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de l'IQM : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul IQM", feedback)
+
+		# Ending message
+		feedback.setProgressText(self.tr('Processus terminé !'))
 
 		return results
+
 
 	def name(self):
 		return 'calculiqm'
 
+
 	def displayName(self):
 		return self.tr('Calcul IQM')
+
 
 	def group(self):
 		return ''
 
+
 	def groupId(self):
 		return ''
+
 
 	def shortHelpString(self):
 		return self.tr(
@@ -196,8 +334,29 @@ class compute_iqm(QgsProcessingAlgorithm):
 			"-> Réseau hydrographique du bassin versant avec les scores de chaque indice de l'IQM9 calculés pour chaque UEA."
 		)
 
+
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)
 
+
+	def get_ET_and_current_step(self, start_time, current_step, step, feedback):
+		# Simple function to output the time elapsed and update the current step to the journal
+		end_time = time.perf_counter()
+		elapsed_time = end_time - start_time
+		time_string = '{:.2f} secondes'.format(elapsed_time)
+		if elapsed_time > 120 : # if time greater than 2 minutes display in minutes seconds
+			m, s = divmod(elapsed_time, 60)
+			time_string = '{:.0f} minutes et {:.2f} secondes'.format(m,s)
+			if m > 60 : # if time greater than an hour add hours too
+				h, m = divmod(m, 60)
+				time_string = '{:.0f} heures, {:.0f} minutes et {:.2f} secondes'.format(h, m, s)
+		# Increments current step count for progress bar
+		current_step += 1
+		feedback.setCurrentStep(current_step)
+		feedback.setProgressText(self.tr(f"--> Temps écoulé pour l'étape {step} : {time_string}"))
+		return current_step
+
+
 	def createInstance(self):
 		return compute_iqm()
+
