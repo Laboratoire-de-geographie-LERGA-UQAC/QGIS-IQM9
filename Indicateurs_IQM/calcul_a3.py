@@ -1,384 +1,467 @@
-"""
-Model exported as python.
-Name : Indice A3
-Group :
-With QGIS : 32601
-"""
-from tempfile import NamedTemporaryFile as Ntf
-import os
+
+import processing
 from qgis.PyQt.QtCore import QVariant, QCoreApplication
 from qgis.core import (QgsProcessing,
-                        QgsField,
-                        QgsFeatureSink,
-                        QgsVectorLayer,
-                        QgsFeatureRequest,
-                        QgsProcessingAlgorithm,
-                        QgsProcessingParameterRasterLayer,
-                        QgsProcessingParameterNumber,
-                        QgsProcessingParameterVectorLayer,
-                        QgsProcessingParameterFeatureSink,
-                        QgsProcessingParameterRasterDestination,
-                        QgsCoordinateReferenceSystem,
-                        QgsProcessingFeatureSourceDefinition,
-                        QgsExpression,
-                        QgsExpressionContext,
-                        QgsExpressionContextUtils,
-                    )
-import processing
+	QgsField,
+	QgsFeatureSink,
+	QgsFeature,
+	QgsVectorLayer,
+	QgsFeatureRequest,
+	QgsProcessingUtils,
+	QgsProcessingAlgorithm,
+	QgsProcessingParameterRasterLayer,
+	QgsWkbTypes,
+	QgsProcessingParameterNumber,
+	QgsProcessingParameterVectorLayer,
+	QgsProcessingParameterFeatureSink,
+	QgsProcessingMultiStepFeedback
+)
 
 
 class IndiceA3(QgsProcessingAlgorithm):
-    ID_FIELD = 'Id'
-    OUTPUT = 'OUTPUT'
+	ID_FIELD = 'Id'
+	OUTPUT = 'OUTPUT'
 
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr("Réseau hydrographique (CRHQ)"), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
-        self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
-        self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
-
-
-    def processAlgorithm(self, parameters, context, model_feedback):
-
-        outputs = {}
-
-        # Create temporary file locations
-        tmp = {
-            'table':Ntf(suffix="table", delete=False),
-            'buffer':Ntf(suffix="buffer", delete=False),
-            'mainWatershed':Ntf(suffix="watershed.tif", delete=False),
-        }
-
-        # Define source stream net
-        source = self.parameterAsSource(parameters, 'stream_network', context)
-        source_vlayer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
-
-        # Define Sink fields
-        sink_fields = source.fields()
-        sink_fields.append(QgsField("Indice A3", QVariant.Int))
-
-        # Define sink
-        (sink, dest_id) = self.parameterAsSink(
-            parameters,
-            self.OUTPUT,
-            context,
-            sink_fields,
-            source.wkbType(),
-            source.sourceCrs()
-        )
-
-        if model_feedback.isCanceled():
-            return {}
-
-        # Defin dams layer
-        dams = self.parameterAsVectorLayer(parameters, 'dams', context)
-        assert dams.isValid(), "dams not valid"
-
-        # Reclassify land use
-        # LandUse classes of interest
-        # MELCC landuse classification
-        CLASSES = ['101','199','2', '300', '360', '3', '20', '27', '4'] # 1:Autres, 2:aggricole, 3:anthropique, 4:aquatique
-        # Extend classe table to other environments
-        table = CLASSES.copy()
-        for i in [2, 4, 5, 6, 7, 8]:
-            for j in range(len(CLASSES)):
-                c = int(CLASSES[j])
-                if (j + 1) % 3 != 0:
-                    c += i * 1000
-                table.append(str(c))
-        alg_params = {
-            'DATA_TYPE': 0,  # Byte
-            'INPUT_RASTER': parameters['landuse'],
-            'NODATA_FOR_MISSING': False,
-            'NO_DATA': 0,
-            'RANGE_BOUNDARIES': 2,  # min <= value <= max
-            'RASTER_BAND': 1,
-            'TABLE': table,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['ReducedLanduse'] = processing.run('native:reclassifybytable', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        # Snap dams to river network
-        alg_params = {
-            'BEHAVIOR': 1,  # Prefer closest point, insert extra vertices where required
-            'INPUT': parameters['dams'],
-            'REFERENCE_LAYER': parameters['stream_network'],
-            'TOLERANCE': 75,
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['SnappedDams'] = processing.run('native:snapgeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        if model_feedback.isCanceled():
-            return {}
-        # Extract specific vertex
-        # TODO : try and remove is_child_algorithm
-        alg_params = {
-            'INPUT': parameters['stream_network'],
-            'VERTICES': '-2',
-            'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-        }
-        outputs['ExtractSpecificVertex'] = processing.run(
-            'native:extractspecificvertices', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-        if model_feedback.isCanceled():
-            return {}
-
-        # Gets the number of features to iterate over for the progress bar
-        total_features = source.featureCount()
-        model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
-
-        fid_idx = source.fields().indexFromName(self.ID_FIELD)
-
-        # Looping through vertices
-        for current, feature in enumerate(source.getFeatures()):
-            fid = feature[fid_idx]
-
-            # For each pour point
-            # Compute the percentage of forests and agriculture lands in the draining area
-            # Then compute index_A1 and add it in a new field to the river network
-            if model_feedback.isCanceled():
-                return {}
-
-            # Find number of dames in watershed
-            # Get segment pour point
-            # Extract By Attribute
-            alg_params = {
-                'FIELD': self.ID_FIELD,
-                'INPUT': outputs['ExtractSpecificVertex']['OUTPUT'],
-                'OPERATOR': 0,  # =
-                'VALUE': str(fid),
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-            }
-
-            outputs['single_point'] = processing.run(
-                'native:extractbyattribute', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            # Watershed
-            alg_params = {
-                'd8_pntr': parameters['D8'],
-                'esri_pntr': False,
-                'pour_pts': outputs['single_point']['OUTPUT'],
-                'output': tmp['mainWatershed'].name
-            }
-            outputs['mainWatershed'] = processing.run(
-                'wbt:Watershed', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            # Polygonize watershed (raster to vector)
-            alg_params = {
-                'BAND': 1,
-                'EIGHT_CONNECTEDNESS': False,
-                'EXTRA': '',
-                'FIELD': 'DN',
-                'INPUT': outputs['mainWatershed']['output'],
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-                #'OUTPUT':tmp['mainWatershed'].name
-            }
-            outputs['mainWatershedPoly'] = processing.run(
-                'gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            if model_feedback.isCanceled():
-                return {}
-
-            # materialize segment
-            single_segment = source.materialize(QgsFeatureRequest().setFilterFids([feature.id()]))
-            # 1 Km buffer around river
-            alg_params = {
-                'INPUT': single_segment,
-                'DISTANCE':1000,
-                'SEGMENTS':5,'END_CAP_STYLE':0,
-                'JOIN_STYLE':0,'MITER_LIMIT':2,
-                'DISSOLVE':True,
-                #'OUTPUT':f"tmp/buffer{fid}.gpkg"
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-            }
-            outputs['damBuffer'] = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            # Clip watershed by buffer
-            alg_params = {
-                'INPUT': outputs['mainWatershedPoly']['OUTPUT'],
-                'OVERLAY': outputs['damBuffer']['OUTPUT'],
-                #'OUTPUT': f"tmp/clipped_buffer_{fid}.gpkg"
-                'OUTPUT':tmp['buffer'].name
-                }
-            outputs['buffer_clip'] = processing.run("native:clip", alg_params, context=context, feedback=None, is_child_algorithm=True)
+	def initAlgorithm(self, config=None):
+		self.addParameter(QgsProcessingParameterNumber('dam_distance', self.tr('Distance max du barrage au segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=15,optional=True, minValue=1))
+		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
-            # Count number of dames in watershed
-            alg_params = {
-                'INPUT':dams,
-                'PREDICATE':[6],
-                'INTERSECT':outputs['buffer_clip']['OUTPUT'],
-                'METHOD':0
-            }
-            processing.run("native:selectbylocation", alg_params, context=context, feedback=None, is_child_algorithm=True)
-            dam_count = dams.selectedFeatureCount()
+	def processAlgorithm(self, parameters, context, model_feedback):
+		feedback = QgsProcessingMultiStepFeedback(9, model_feedback)
+		outputs = {}
+
+		# Define stream network as source for data output
+		source = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		# Gets the inputed dam distance parameter
+		max_dam_distance = self.parameterAsInt(parameters, 'dam_distance', context)
+
+		# Define sink fields
+		sink_fields = source.fields()
+		sink_fields.append(QgsField("Nb_barrage_amont", QVariant.Int))
+		sink_fields.append(QgsField("Indice A3", QVariant.Int))
+
+		# Define sink
+		(sink, dest_id) = self.parameterAsSink(
+			parameters,
+			self.OUTPUT,
+			context,
+			sink_fields,
+			source.wkbType(),
+			source.sourceCrs()
+		)
+
+		if feedback.isCanceled():
+			return {}
+
+		# Initialising treatment layers
+		dam_counts = {}
+		dams_layer = self.parameterAsVectorLayer(parameters, 'dams', context)
+		hydro_layer = source.clone()
+
+		# Gets the number of features (dams) to iterate over
+		total_features = dams_layer.featureCount()
+		feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+
+		feedback.setProgressText(self.tr(f"Compte des barrages"))
+		try :
+			for current, dam in enumerate(dams_layer.getFeatures()):
+				current_feat = None
+				try :
+					# Finds the river segment of the current dam
+					current_feat = find_segment_for_structure(dam, hydro_layer, context, distance=max_dam_distance)
+				except Exception as e :
+					feedback.reportError(self.tr(f"Erreur dans find_segment_for_structure : {str(e)}"))
+				if current_feat is None:
+					continue
+
+				downstream_feat = None
+				try :
+					# Finds the downstream river segment
+					downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+				except Exception as e :
+					feedback.reportError(self.tr(f"Erreur dans get_downstream_segment : {str(e)}"))
+				if downstream_feat is None:
+					continue
+
+				cost = 0
+				# Iterate over the next downstream segments if the distance of the structure is less than 1000 meters
+				while (cost < 1000) and (downstream_feat is not None) :
+					intersection_point = None
+					try :
+						# Find the intersecting point between the dam's river segment and the downstream segment
+						intersection_point = get_intersection_point(current_feat, downstream_feat)
+					except Exception as e :
+						feedback.reportError(self.tr(f"Erreur dans get_intersection_point : {str(e)}"))
+					if intersection_point is None:
+						break
+
+					try :
+						# Calculates the distance along the network between the structure and this point
+						cost = compute_shortest_path(dam, intersection_point, hydro_layer, feedback, context)
+					except Exception as e :
+						feedback.reportError(self.tr(f"Erreur dans compute_shortest_path : {str(e)}"))
+
+					# If the distance is < 1000 m, increment the downstream segment dam counter.
+					if cost is None :
+						break
+					if cost < 1000:
+						downstream_id = downstream_feat['Id_UEA']
+						dam_counts[downstream_id] = dam_counts.get(downstream_id, 0) + 1
+						# Get the downstream segment of the downstream segment to see if the dam is within range of another segment (for the next iteration of the while loop)
+						current_feat = downstream_feat
+						downstream_feat = None
+						try :
+							# Finds the downstream river segment
+							downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+						except Exception as e :
+							feedback.reportError(self.tr(f"Erreur dans get_downstream_segment du segment en aval du segment d'aval du barrage : {str(e)}"))
+						if downstream_feat is None:
+							break
+
+				# Updating the progress bar
+				if total_features != 0:
+					progress = int(100*(current/total_features))
+				else:
+					progress = 0
+				feedback.setProgress(progress)
+
+				if feedback.isCanceled():
+					return {}
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans la boucle de structure : {str(e)}"))
+		feedback.setCurrentStep(1)
+		if feedback.isCanceled():
+			return {}
+
+		# Adding dam count field
+		feedback.setProgressText(self.tr(f"Ajout du champ de compte de barrage"))
+		try :
+			hydro_layer.startEditing()
+			hydro_layer.dataProvider().addAttributes([
+				QgsField("Nb_barrage_amont", QVariant.Int)
+			])
+			hydro_layer.updateFields()
+
+			for feat in source.getFeatures():
+				seg_id = feat['Id_UEA']
+				dam_count = dam_counts.get(seg_id, 0)
+
+				# add the structure count to the attributes table
+				new_feat = QgsFeature(hydro_layer.fields())
+				new_feat.setGeometry(feat.geometry())
+				new_feat.setAttributes(feat.attributes() + [dam_count])
+				hydro_layer.addFeature(new_feat)
+			hydro_layer.commitChanges()
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans l'ajout du champ de compte des barrages : {str(e)}"))
+		feedback.setCurrentStep(2)
+		if feedback.isCanceled():
+				return {}
+
+		# Creating buffers for alluvial plain simulation
+		feedback.setProgressText(self.tr(f"Création des tampons de 2x du lit mineur et calcul de l'util. du terr."))
+		try :
+			# Compute mean stream width for stream network segments
+			ptref_id = parameters['ptref_widths']
+			expr = f"coalesce(array_mean(overlay_nearest('{ptref_id}', \"Largeur_mod\", limit:=-1, max_distance:=5)), 5)"
+			alg_params = {
+				'INPUT': parameters['stream_network'],
+				'FIELD_NAME': 'mean_width',
+				'FIELD_TYPE': 0,  # 0 = float
+				'FIELD_LENGTH': 10,
+				'FIELD_PRECISION': 3,
+				'NEW_FIELD': True,
+				'FORMULA': expr,
+				'OUTPUT': 'memory:stream_w_mean'
+			}
+			stream_w_mean = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(3)
+			# Create 'Mean width x 2' buffer
+			expr = 'buffer($geometry, "mean_width" * 2, 30, \'round\', \'miter\', 2)'
+			alg_params = {
+				'INPUT': stream_w_mean,
+				'EXPRESSION': expr,
+				'OUTPUT': QgsProcessingUtils.generateTempFilename('buffer2x.shp')
+			}
+			outputs['buffer2x'] = processing.run('qgis:geometrybyexpression', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			feedback.setCurrentStep(4)
+			# Reclassify land use
+			outputs['reclassifiedlanduse'] = reduce_landuse(parameters['landuse'], context, feedback=None)
+			feedback.setCurrentStep(5)
+			# Compute land use within 2x mean width buffer
+			stream2x = compute_landuse_areas(outputs['reclassifiedlanduse'], outputs['buffer2x'], context=context, feedback=None)
+			feedback.setCurrentStep(6)
+			# Join dam_count to stream2x
+			alg_params = {
+				'INPUT': stream2x,
+				'FIELD': 'Id',
+				'INPUT_2': hydro_layer,
+				'FIELD_2': 'Id',
+				'FIELDS_TO_COPY': ['Nb_barrage_amont'],
+				'METHOD': 1,  # 1 = one-to-one
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:stream2x'
+			}
+			stream2x = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans création des tampons de lit mineur : {str(e)}"))
+		feedback.setCurrentStep(7)
+		if feedback.isCanceled():
+			return {}
+
+		# Compute A3 index
+		feedback.setProgressText(self.tr(f"Calcul de l'indice A2"))
+		try :
+			outputs['streams2x'] = computeA3(stream2x, context, feedback=None)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul de l'indice A2 : {str(e)}"))
+		feedback.setCurrentStep(8)
+		if feedback.isCanceled():
+			return {}
+		
+		# Getting results ready to output 
+		feedback.setProgressText(self.tr(f"Sortie des résultats."))
+		try :
+			# Convert stream features to vector layers
+			streams2x_lyr = QgsVectorLayer(outputs['streams2x'], 'ws2x', 'ogr')
+			# Map feature ID and index values for each watershed layer
+			a3_map = {f['Segment']: f['Indice A3'] for f in streams2x_lyr.getFeatures()}
+			# Write final indices to sink using map
+			for feat in source.getFeatures():
+				seg = feat['Segment']
+				a3_vals = a3_map.get(seg, None)
+				dam_count = dam_counts.get(feat['Id_UEA'],0)
+				# add both the dam count and A3 index score
+				feat.setAttributes(feat.attributes() + [dam_count, a3_vals])
+				sink.addFeature(feat, QgsFeatureSink.FastInsert)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans la sortie des résultats : {str(e)}"))
+		feedback.setCurrentStep(9)
+		if feedback.isCanceled():
+			return {}
+
+		# Ending message
+		feedback.setProgressText(self.tr('\tProcessus terminé !'))
+
+		return {self.OUTPUT: dest_id}
+
+	def tr(self, string):
+		return QCoreApplication.translate('Processing', string)
+
+	def createInstance(self):
+		return IndiceA3()
+
+	def name(self):
+		return 'indicea3'
+
+	def displayName(self):
+		return self.tr('Indice A3')
+
+	def group(self):
+		return self.tr('IQM (indice solo)')
+
+	def groupId(self):
+		return 'iqm'
+
+	def shortHelpString(self):
+		return self.tr(
+			"Calcule de l'indice A3 afin d'évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non-confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial liée aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
+			"Paramètres\n" \
+			"----------\n" \
+			"Distance max du barrage au segment : Chiffre (int)(optionnel; valeur par défaut : 15)\n" \
+			"-> Distance maximale (en m) des barrages au segment. Parfois les points de barrages n'intersecte pas les lignes de réseau hydrographique. Cette distance est la distance maximale que l'algorithme vas chercher autour de chaque barrage pour trouver le segment de rivière le plus proche pour effectuer le compte du nombre de barrages.\n" \
+			"Réseau hydrographique : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Barrages : Vectoriel (point)\n" \
+			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
+			"Utilisation du territoire : Matriciel\n" \
+			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"PtRef largeur : Vectoriel (points)\n" \
+			"-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Retourne\n" \
+			"----------\n" \
+			"Couche de sortie : Vectoriel (lignes)\n" \
+			"-> Réseau hydrographique du bassin versant avec le nombre de barrages en amont et le score de l'indice A3 calculé pour chaque UEA."
+		)
 
 
-            #### LAND USE ANALYSIS
-            # analyse land use on sides of stream
-            # Get segments buffers
-            feature_mean_width = ptrefs_mean_width(feature, source_vlayer, parameters['ptref_widths'])
-            buffer_width = max(
-                feature_mean_width * 2.5, # twice river width on each side
-                feature_mean_width * 0.5 + 15
-            )
-            params = {
-                'INPUT':single_segment,
-                'DISTANCE':buffer_width,
-                'SEGMENTS':5,'END_CAP_STYLE':1,'JOIN_STYLE':1,'MITER_LIMIT':2,'DISSOLVE':False,
-                #'OUTPUT': tmp['buffer'].name,
-                'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT,
-                #'OUTPUT' : f"tmp/test_buffer{fid}.gpkg"
-            }
-            outputs['buffer'] = processing.run("native:buffer", params, context=context, feedback=None, is_child_algorithm=True)
+def find_segment_for_structure(structure, hydro_layer, context, distance=15):
+	# Use the QGIS processing to select river segments located within `distance` meters of the structure point.
+	# Create a temporary layer with the structure point
+	point_layer = QgsVectorLayer("Point?crs=" + hydro_layer.crs().authid(), "structure_point", "memory")
+	provider = point_layer.dataProvider()
+	feat = QgsFeature()
+	feat.setGeometry(structure.geometry())
+	provider.addFeatures([feat])
+	point_layer.updateExtents
 
-            # Clip landuse by buffer
-            alg_params = {
-                'ALPHA_BAND': False,
-                'CROP_TO_CUTLINE': True,
-                'DATA_TYPE': 0,  # Use Input Layer Data Type
-                'EXTRA': '',
-                'INPUT': outputs['ReducedLanduse']['OUTPUT'],
-                'KEEP_RESOLUTION': True,
-                'MASK': outputs['buffer']['OUTPUT'],
-                'MULTITHREADING': False,
-                'NODATA': None,
-                'OPTIONS': '',
-                'SET_RESOLUTION': False,
-                'SOURCE_CRS': QgsCoordinateReferenceSystem('EPSG:32198'),
-                'TARGET_CRS': 'ProjectCrs',
-                'TARGET_EXTENT': None,
-                'X_RESOLUTION': None,
-                'Y_RESOLUTION': None,
-                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT#f"tmp/land_use_clip_{fid}.tif"#
-            }
-            outputs['Drain_areaLand_use'] = processing.run('gdal:cliprasterbymasklayer', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            # Landuse unique values report
-            alg_params = {
-                'BAND': 1,
-                'INPUT': outputs['Drain_areaLand_use']['OUTPUT'],
-                'OUTPUT_TABLE': tmp['table'].name
-            }
-            outputs['LanduseUniqueValuesReport'] = processing.run('native:rasterlayeruniquevaluesreport', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-            # Here we compute forest and agri area, the add to new feture
-            table = QgsVectorLayer(
-                outputs['LanduseUniqueValuesReport']['OUTPUT_TABLE'],
-                'table', 'ogr'
-            )
-
-            class_areas = {feat['value']:feat['m2'] for feat in table.getFeatures()}
-            land_area = sum(class_areas.values()) - class_areas.get(4,0)
-            anthro_area = class_areas.get(3, 0) + class_areas.get(2, 0)
+	alg_params = {
+		'INPUT': hydro_layer,
+		'REFERENCE': point_layer,
+		'DISTANCE': distance,
+		'METHOD': 0 # 0, create a new selection
+	}
+	processing.run("native:selectwithindistance", alg_params, context=context, is_child_algorithm=True)
+	selected_feats = list(hydro_layer.getSelectedFeatures())
+	# Returns the first segment found (the closest one)
+	return selected_feats[0] if selected_feats else None
 
 
-            indiceA3 = computeA3(land_area, anthro_area, dam_count)
-
-            # Add forest area to new featuer
-            feature.setAttributes(
-                    feature.attributes() + [indiceA3]
-            )
-
-            # Add modifed feature to sink
-            sink.addFeature(feature, QgsFeatureSink.FastInsert)
-
-            #print(f'{fid}/{total_features}')
-            #print(f"{land_area=}\n{anthro_area=}\n{indiceA3=}\n\n")
-
-            # Increments the progress bar
-            if total_features != 0:
-                progress = int(100*(current/total_features))
-            else:
-                progress = 0
-            model_feedback.setProgress(progress)
-            model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+def get_downstream_segment(hydro_layer, current_feat):
+	# Retrieves the ID of the downstream segment from the attribute field.
+	downstream_id = current_feat['Id_UEA_aval']
+	# Search for the corresponding segment in the layer
+	request = QgsFeatureRequest().setFilterExpression(f'"Id_UEA" = \'{downstream_id}\'')
+	return next(hydro_layer.getFeatures(request), None)
 
 
-        # Clear temporary files
-        for tempfile in tmp.values():
-            tempfile.close()
-            os.remove(tempfile.name)
+def get_intersection_point(feat1, feat2):
+	# Calculates the geometric intersection between the two segments
+	intersection = feat1.geometry().intersection(feat2.geometry())
+	# If the intersection is a point, return it
+	if intersection and intersection.type() == QgsWkbTypes.PointGeometry:
+		return intersection
+	# If it's a multipoint, we take the first one.
+	elif intersection and intersection.type() == QgsWkbTypes.MultiPointGeometry:
+		return intersection.asMultiPoint()[0]
+	# Otherwise, we return None
+	return None
 
-        # Ending message
-        model_feedback.setProgressText(self.tr('\tProcessus terminé et fichiers temporaire nettoyés'))
 
-        return {self.OUTPUT: dest_id}
+def compute_shortest_path(structure_point, target_point, hydro_layer, feedback, context):
+	# Extract the coordinates for the points
+	start_coords = structure_point.geometry().asPoint()
+	end_coords = target_point.asPoint()
 
-    def tr(self, string):
-        return QCoreApplication.translate('Processing', string)
+	# Find the shortest path on the river network between the downstream segment and the given structure to get the distance between the two
+	alg_params = {
+		'INPUT': hydro_layer,
+		'STRATEGY': 0,  # 0 = shortest path
+		'START_POINT': f"{start_coords.x()},{start_coords.y()}",
+		'END_POINT': f"{end_coords.x()},{end_coords.y()}",
+		'DEFAULT_DIRECTION': 2,
+		'DEFAULT_SPEED': 1,
+		'TOLERANCE': 5,
+		'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+	}
+	result = processing.run("native:shortestpathpointtopoint", alg_params, context=context, is_child_algorithm=True)
+	temp_layer = context.takeResultLayer(result['OUTPUT'])
 
-    def createInstance(self):
-        return IndiceA3()
+	if not temp_layer.isValid():
+		feedback.reportError("La couche temporaire n'est pas valide.")
+		return None
+	if 'cost' not in temp_layer.fields().names():
+		feedback.reportError("Le champ 'cost' est introuvable dans la couche de chemin.")
+		return None
 
-    def name(self):
-        return 'Indice A3'
+	path_feat = next(temp_layer.getFeatures(), None)
+	# Return the length of the shortest path on the river network ('cost' field)
+	return path_feat['cost'] if path_feat else None
 
-    def displayName(self):
-        return self.tr('Indice A3')
 
-    def group(self):
-        return self.tr('IQM (indice solo)')
+def reduce_landuse(landuse, context, feedback):
+	# INPUT : parameters
+	# OUTPUT : layer_id
+	CLASSES = [
+		'50','56','1','210','235','1','501','735','1', #Forestiers
+		'60', '77', '1', '30', '31', '1', #Sols nues
+		'250', '261', '1', '263', '280', '1', # Coupes de regeneration
+		'101','199','2', #Agricoles
+		'300', '360', '3', #Anthropisé
+		'20', '27', '4',
+		'2000', '9000', '1'#Milieux humides
+	]
 
-    def groupId(self):
-        return 'iqm'
+	# Reclassify land use
+	alg_params = {
+		'DATA_TYPE': 0,  # Byte
+		'INPUT_RASTER': landuse,
+		'NODATA_FOR_MISSING': True,
+		'NO_DATA': 0,
+		'RANGE_BOUNDARIES': 2,  # min <= value <= max
+		'RASTER_BAND': 1,
+		'TABLE': CLASSES,
+		'OUTPUT': QgsProcessingUtils.generateTempFilename("landuse.tif"),
+	}
+	return processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-    def shortHelpString(self):
-        return self.tr(
-            "Calcule de l'indice A3 afin d'évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non-confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial liée aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
-            "Paramètres\n" \
-            "----------\n" \
-            "Réseau hydrographique : Vectoriel (lignes)\n" \
-            "-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-            "WBT D8 Pointer: Matriciel\n" \
-            "-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
-            "Barrages : Vectoriel (point)\n" \
-            "-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
-            "Utilisation du territoire : Matriciel\n" \
-            "-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
-            "PtRef largeur : Vectoriel (points)\n" \
-            "-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-            "Retourne\n" \
-            "----------\n" \
-            "Couche de sortie : Vectoriel (lignes)\n" \
-            "-> Réseau hydrographique du bassin versant avec le score de l'indice A3 calculé pour chaque UEA."
-        )
 
-def ptrefs_mean_width(feature, source, PtRef_id, width_field='Largeur_mod', context=None, feedback=None):
-    expr = QgsExpression(f"""
-            array_mean(overlay_nearest('{PtRef_id}', {width_field}, limit:=-1, max_distance:=5))
-                """)
-    feat_context = QgsExpressionContext()
-    feat_context.setFeature(feature)
+def compute_landuse_areas(landuse_raster, basin_layer, context, feedback):
+		# Inputs: Landuse raster, Basin polygon
+		# Output: Landuse counts (m²)
 
-    scopes = QgsExpressionContextUtils.globalProjectLayerScopes(source)
-    feat_context.appendScopes(scopes)
+		# Zonal histogram: produces pixel counts as fields lc_1, lc_2, lc_3, lc_4
+		alg_params = {
+			'INPUT_RASTER': landuse_raster,
+			'RASTER_BAND': 1,
+			'INPUT_VECTOR': basin_layer,
+			'COLUMN_PREFIX': 'lc_',
+			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+		}
+		zonalhist = processing.run('qgis:zonalhistogram', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
 
-    mean_width = expr.evaluate(feat_context)
-    if not mean_width : mean_width = 5
+		# Multiply pixel counts for each land class by 100 to get area in m²
+		lc_fields = ['lc_1', 'lc_2', 'lc_3', 'lc_4']
+		area_fields = ['forest_area', 'agri_area', 'anthro_area', 'water_area']
 
-    return mean_width
+		for i, field in enumerate(lc_fields):
+			alg_params = {
+				'INPUT': zonalhist,
+				'FIELD_NAME': area_fields[i],
+				'FIELD_TYPE': 0,  # Float
+				'FIELD_LENGTH': 20,
+				'FIELD_PRECISION': 2,
+				'FORMULA': f'"{field}" * 100',
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			zonalhist = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
-def computeA3(land_area, anthro_area, dam_count):
-    indiceA3 = 0
-    if land_area != 0:
-        ratio = anthro_area / land_area
-        # Assigne index A3
-        if ratio >= 0.9:
-            indiceA3 = 4
-        elif ratio >= 0.66:
-            indiceA3 = 3
-        elif ratio >= 0.33:
-            indiceA3 = 2
-        elif ratio >= 0.1:
-            indiceA3 = 1
-    # Add penality
-    dam_penality = 0
-    if dam_count == 1:
-        dam_penality = 2
-    elif dam_count > 1:
-        dam_penality = 4
-    indiceA3 += dam_penality
-    return indiceA3
+		# Compute total land area = forest + agri + anthro
+		alg_params = {
+			'INPUT': zonalhist,
+			'FIELD_NAME': 'land_area',
+			'FIELD_TYPE': 0,  # Float
+			'FIELD_LENGTH': 20,
+			"FIELD_PRECISION": 2,
+			'FORMULA': '"forest_area" + "agri_area" + "anthro_area"',
+			'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+		}
+		return processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+
+
+def computeA3(stream2x, context, feedback):
+	a3_formula = """
+		with_variable(
+		'penalty',
+		CASE
+			WHEN "Nb_barrage_amont" = 1 THEN 2
+			WHEN "Nb_barrage_amont" > 1 THEN 4
+			ELSE 0
+		END,
+		CASE
+			WHEN "land_area" = 0 THEN @penalty + 2
+			WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.9 THEN @penalty + 4
+			WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.66 THEN @penalty + 3
+			WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.33 THEN @penalty + 2
+			WHEN (("anthro_area" + "agri_area")/"land_area") >= 0.1 THEN @penalty + 1
+			ELSE @penalty
+		END	
+		)
+		"""
+	# Compute A3
+	alg_params = {
+		'INPUT': stream2x,
+		'FIELD_NAME': 'Indice A3',
+		'FIELD_TYPE': 2,  # 2 = integer
+		'FIELD_LENGTH': 3,
+		'FIELD_PRECISION': 0,
+		'NEW_FIELD': True,
+		'FORMULA': a3_formula,
+		'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds2x.shp")
+	}
+	return processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
