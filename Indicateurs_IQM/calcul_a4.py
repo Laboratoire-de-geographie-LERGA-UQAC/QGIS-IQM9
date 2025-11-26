@@ -91,6 +91,34 @@ class calculerIc(QgsProcessingAlgorithm):
 		total_features = source.featureCount()
 		feedback.pushInfo(self.tr(f"{total_features} features à traiter"))
 
+		# Get boundaries of all river segments
+		feedback.setProgressText(self.tr("Extraction des extrémités avec native:boundary..."))
+		try :
+			rivnet_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+			boundary_layer = processing.run("native:boundary", {
+				'INPUT': rivnet_layer,
+				'OUTPUT': 'memory:'
+			}, context=context)['OUTPUT']
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans la création des points d'extrémités : {str(e)}"))
+			return {}
+
+		# Regroup the points per segments (Id_UEA)
+		extremities = {}
+		for point_feat in boundary_layer.getFeatures():
+			fid = point_feat['fid']
+			if fid not in extremities:
+				extremities[fid] = []
+			geom = point_feat.geometry()
+			# Gérer Point et MultiPoint
+			if geom.isMultipart():
+				pts = geom.asMultiPoint()
+			else:
+				pts = [geom.asPoint()]
+			for pt in pts:
+				extremities[fid].append(pt)
+
+		# Calculate sinuosity index and A4 for each river segment
 		feedback.setProgressText(self.tr("Calcul de l'indice de sinuosité et de l'indice A4..."))
 		try :
 			for current, feature in enumerate(source.getFeatures()):
@@ -98,18 +126,42 @@ class calculerIc(QgsProcessingAlgorithm):
 				if feedback.isCanceled():
 					break
 
-				# Find start and endpoint vertices
-				feature_vertices = list(feature.geometry().vertices())
+				# Extract boundary points for the current segment
+				fid = feature.id()
+				geom = feature.geometry()
+				points = extremities.get(fid, [])
 
-				# Straight-line distance between the two ends
-				dist_between_ends = max(p1.distance(p2) for p1 in feature_vertices for p2 in feature_vertices) # finds the max distance between vertices which is more robust to disjointed lines that can affect distance calculations
+				if len(points) == 2:
+					# Normal case, 2 extremities
+					distance = points[0].distance(points[1])
+				# If more than two points (non continuous line), removes vertices of disjoint lines until only the two extremities of the segment remains
+				elif len(points) > 2:
+					# Initialise the list of remaining points
+					remaining_points = points.copy()
+					while len(remaining_points) > 2 : 
+						# Finds disjoint vertices pairs (those closest to each others)
+						min_dist = float('inf')
+						p_close1, p_close2 = None, None
+						for i in range(len(remaining_points)):
+							for j in range(i+1, len(remaining_points)):
+								d = remaining_points[i].distance(remaining_points[j])
+								if d < min_dist:
+									min_dist = d
+									p_close1, p_close2 = remaining_points[i], remaining_points[j]
+						# Removes the disjoint lines vertices
+						remaining_points = [p for p in remaining_points if p not in (p_close1, p_close2)]
+					# The last two points are the extremities of the segment
+					distance = remaining_points[0].distance(remaining_points[1])
+				else:
+					distance = 0  # Edge case
 
-				if dist_between_ends == 0:
+				# Calculate the sinuosity index (Is)
+				if distance > 0:
+					# Is = length of the channel/length from both extremities
+					Is = geom.length() / distance
+				else:
 					# If start and endpoint are connected make 
 					Is = 1
-				else:
-					# Is (sinuosity index) = length of the channel/length from both extremities
-					Is = feature.geometry().length() / dist_between_ends
 
 				# A4 index calculation where Is is the sinuosity index
 				if Is >= 1.5:
@@ -121,9 +173,7 @@ class calculerIc(QgsProcessingAlgorithm):
 				else:
 					indice_A4 = 6
 
-				feature.setAttributes(
-					feature.attributes() + [dist_between_ends, Is, indice_A4]
-				)
+				feature.setAttributes(feature.attributes() + [distance, Is, indice_A4])
 
 				# Add a feature in the sink
 				sink.addFeature(feature, QgsFeatureSink.FastInsert)
@@ -138,7 +188,7 @@ class calculerIc(QgsProcessingAlgorithm):
 			feedback.reportError(self.tr(f"Erreur dans la boucle de structure : {str(e)}"))
 
 		# Ending message
-		feedback.setProgressText(self.tr('\tProcessus terminé !'))
+		feedback.setProgressText(self.tr('Processus terminé !'))
 
 		return {self.OUTPUT: dest_id}
 
