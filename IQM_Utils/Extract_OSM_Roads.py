@@ -12,10 +12,13 @@
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
 	QgsProcessing,
+	QgsProcessingUtils,
+	QgsVectorLayer,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterEnum,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterFeatureSink,
+	QgsProject
 )
 from qgis import processing
 
@@ -27,24 +30,24 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer(self.LINES, self.tr('lines (du fichier map.osm de OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('watershed_area', self.tr('Superficie du BV'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-		self.addParameter(QgsProcessingParameterEnum('road_type', self.tr('Type de route à extraire'), options=[self.tr('Toutes'),'motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'], defaultValue='Toutes', allowMultiple=True, usesStaticStrings=True, optional=True))
-		self.addParameter(QgsProcessingParameterEnum('railway_type', self.tr('Type de chemin de fer à extraire'), options=[self.tr('Tous'),'abandoned','disused','funicular','light_rail','narrow_gauge','rail','tram'], defaultValue='Tous', allowMultiple=True, usesStaticStrings=True, optional=True))
+		self.addParameter(QgsProcessingParameterEnum('road_type', self.tr('Type de route à extraire'), options=[self.tr('Tout'),'motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
+		self.addParameter(QgsProcessingParameterEnum('railway_type', self.tr('Type de chemin de fer à extraire'), options=[self.tr('Tout'),'disused','funicular','light_rail','narrow_gauge','rail','tram'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink('OUTPUT', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=False, defaultValue=None))
 
-	def processAlgorithm(self, parameters, context, feedback):
 
+	def processAlgorithm(self, parameters, context, feedback):
 		# Extracting the road and railway type selected by the user
 		selected_road_type = self.parameterAsEnumStrings(parameters, 'road_type', context)
 		selected_rail_type = self.parameterAsEnumStrings(parameters, 'railway_type', context)
 
 		# Expression used to select the type of roads and railway wanted
-		if self.tr("Toutes") in selected_road_type :
-			expression_road = "(\"highway\" IN ('motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'))"
+		if self.tr("Tout") in selected_road_type :
+			expression_road = "(\"highway\" IN ('cycleway','motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'))"
 		else :
 			expression_road = "(\"highway\" IN ({}))".format(", ".join([f"'{t}'" for t in selected_road_type]))
 
-		if self.tr("Tous") in selected_rail_type :
-			expression_rail = "(\"railway\" IN ('abandoned','disused','funicular','light_rail','narrow_gauge','rail','tram'))"
+		if self.tr("Tout") in selected_rail_type :
+			expression_rail = "(\"railway\" IN ('disused','funicular','light_rail','narrow_gauge','rail','tram'))"
 		else :
 			expression_rail = "(\"railway\" IN ({}))".format(", ".join([f"'{t}'" for t in selected_rail_type]))
 
@@ -53,8 +56,24 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		# Selecting the lines that are roads
 		OSM_lines = self.parameterAsVectorLayer(parameters, self.LINES, context)
+		# Verify that the layer is in the right projection
+		if OSM_lines.crs().authid() != QgsProject.instance().crs().authid() :
+			feedback.pushInfo(self.tr(f"CRS de la couche OSM_lines non conforme au projet. La couche sera reprojeté à {QgsProject.instance().crs().authid()}"))
+			# Making the projection the same as the project
+			try:
+				alg_params = {
+					'INPUT': OSM_lines,
+					'TARGET_CRS': QgsProject.instance().crs().authid(),
+					'OUTPUT': 'memory:'
+				}
+				reproj_lyr = processing.run('native:reprojectlayer', alg_params,context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				OSM_lines = make_layer(reproj_lyr, context, "reproj_layer")
+			except Exception as e :
+				feedback.reportError(f"Erreur lors de la reprojection de la couche de lignes OSM : {str(e)}")
+				return {}
+
+		# Selecting the lines that are roads or train tracks
 		alg_params = {
 			'INPUT' : OSM_lines,
 			'EXPRESSION': expression,
@@ -132,16 +151,16 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Extrait le réseau routier à partir des données d'OpenStreetMap\n" \
+			"Extrait le réseau routier et chemin de fer à partir des données d'OpenStreetMap\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"lines : Vectoriel (lignes)\n" \
 			"-> Lignes représentant le réseau routier et autres particularités du territoire (lignes électriques, rivières etc.). Source des données : OpenStreetMap (à partir du fichier map.osm téléchargé pour la superficie du bassin-versant).\n" \
 			"Aire du bassin versant : Vectoriel (polygone)\n" \
-			"-> Superficie du bassin versant étudié dans laquelle isoler les routes. Source des données : À faire soi-même.\n" \
-			"Type de route à extraire : Liste[str] (optionnel; valeur par défaut : Toutes)\n" \
+			"-> Superficie du bassin versant étudié dans laquelle isoler les routes. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Bassins hydrographiques multiéchelles du Québec, [Jeu de données], dans Données Québec.\n" \
+			"Type de route à extraire : Liste[str] (optionnel; valeur par défaut : Tout)\n" \
 			"-> Menu déroulant du type de route à sélectionner (selon les valeurs de la colonne highway de la table attributaire de lines). Voir la définition des valeurs sur la page Key:highway du wiki d'OpenStreetMap.\n" \
-			"Type de chemin de fer à extraire : Liste[str] (optionnel; valeur par défaut : Tous)\n" \
+			"Type de chemin de fer à extraire : Liste[str] (optionnel; valeur par défaut : Tout)\n" \
 			"-> Menu déroulant du type de chemin de fer à sélectionner (selon les valeurs de la colonne railway de la table attributaire de lines). Voir la définition des valeurs sur la page Key:railway du wiki d'OpenStreetMap.\n" \
 			"Retourne\n" \
 			"----------\n" \
@@ -151,3 +170,19 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 
 	def createInstance(self):
 		return Extract_OSM_roads()
+
+
+def make_layer(obj, context, name='layer'):
+	"""
+	Make sure we have a QgsVectorLayer.
+	- If obj is already a layer it is returned
+	- If obj is a string (path/ID), we convert is to a OGR layer.
+	"""
+	if isinstance(obj, QgsVectorLayer):
+		return obj
+	if isinstance(obj, str):
+		lyr = QgsProcessingUtils.mapLayerFromString(obj, context)
+		if lyr is None or not lyr.isValid():
+			raise RuntimeError(f"Impossible de charger la couche '{name}' depuis: {obj}")
+		return lyr
+	raise TypeError(f"Type inattendu pour '{name}': {type(obj)}")
