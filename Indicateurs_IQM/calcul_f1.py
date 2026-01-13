@@ -26,7 +26,7 @@
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (
 	QgsProcessing,
-	QgsProcessingContext,
+	QgsPointXY,
 	QgsFeatureSink,
 	QgsField,
 	QgsProcessingException,
@@ -34,13 +34,11 @@ from qgis.core import (
 	QgsProcessingParameterFeatureSource,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink,
+	QgsSpatialIndex,
 	QgsWkbTypes,
-	QgsVectorLayer,
-	QgsFeature,
 	QgsFeatureRequest,
 	QgsGeometry
 )
-from qgis import processing
 
 
 class IndiceF1(QgsProcessingAlgorithm):
@@ -86,66 +84,95 @@ class IndiceF1(QgsProcessingAlgorithm):
 		structure_counts = {}
 		struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
 		hydro_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
-
+		# Create spatial index to make the finding of the nearest segment faster
+		hydro_index = QgsSpatialIndex(hydro_layer.getFeatures())
+		id_to_feat = {f['Id_UEA']: f for f in hydro_layer.getFeatures()}
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = struct_layer.featureCount()
-		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
+		model_feedback.pushInfo(self.tr(f"\t {total_features} features (structures) à traiter"))
 
 		try :
 			for current, struct in enumerate(struct_layer.getFeatures()):
 				current_feat = None
 				try :
 					# Finds the river segment of the current structure
-					current_feat = find_segment_for_structure(struct, hydro_layer, context)
+					current_feat = find_segment_for_structure_fast(struct, hydro_layer, hydro_index)
 				except Exception as e :
 					model_feedback.reportError(self.tr(f"Erreur dans find_segment_for_structure : {str(e)}"))
-				if current_feat is None:
+					return {}
+				if current_feat is None: # if no segment associated to the structure
+					#model_feedback.pushInfo(self.tr(f"Pas de segment associé à la structure actuelle. Prochain segment."))
 					continue
+				if model_feedback.isCanceled():
+					return {}
 
 				downstream_feat = None
 				try :
 					# Finds the downstream river segment
-					downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+					downstream_id = current_feat['Id_UEA_aval']
+					downstream_feat = id_to_feat.get(downstream_id)
 				except Exception as e :
 					model_feedback.reportError(self.tr(f"Erreur dans get_downstream_segment : {str(e)}"))
+					return {}
 				if downstream_feat is None:
+					#model_feedback.pushInfo(self.tr(f"Le segment d'aval ne fait pas partie du réseau hydrographique. Prochain segment."))
 					continue
 
-				cost = 0
-				# Iterate over the next downstream segments if the distance of the structure is less than 1000 meters
-				while (cost < 1000) and (downstream_feat is not None) :
+				cum_dist = 0
+				prev_intersection = None
+				step = 0
+				visited = set()
+				# Iterate over the next downstream segments while the cumulative distance from the structure to the downstream segment is less than 1000 meters
+				while (cum_dist < 1000) and (downstream_feat is not None) :
 					intersection_point = None
+					if model_feedback.isCanceled():
+						return {}
 					try :
 						# Find the intersecting point between the structure river segment and the downstream segment
-						intersection_point = get_intersection_point(current_feat, downstream_feat)
+						intersection_point = get_intersection_point(current_feat, downstream_feat, tol=5)
 					except Exception as e :
 						model_feedback.reportError(self.tr(f"Erreur dans get_intersection_point : {str(e)}"))
-					if intersection_point is None:
+					if intersection_point is None or intersection_point.isEmpty():
+						#model_feedback.pushInfo(self.tr(f"Le segment d'aval ne retourne pas d'intersection avec le segment courant. Prochain segment."))
 						break
 
 					try :
 						# Calculates the distance along the network between the structure and this point
-						cost = compute_shortest_path(struct, intersection_point, hydro_layer, model_feedback, context)
+						if step == 0 : # If first time get distance between the structure and the intersection with downstream
+							dist = line_distance_between_points(current_feat.geometry(), struct.geometry(), intersection_point)
+						else : # Otherwise get the distance between the previous intersection and the current intersection
+							dist = line_distance_between_points(current_feat.geometry(), prev_intersection, intersection_point)
 					except Exception as e :
 						model_feedback.reportError(self.tr(f"Erreur dans compute_shortest_path : {str(e)}"))
-
+						return {}
 					# If the distance is < 1000 m, increment the downstream segment structure counter.
-					if cost is None :
+					if dist is None or dist <= 0:
+						# Null or invalid distance.
 						break
-					if cost < 1000:
+					if (cum_dist + dist) < 1000:
+						# Get the downstream UEA to increment the count of structures
 						downstream_id = downstream_feat['Id_UEA']
+						# Verify if we already counted this segment for this structure
+						if downstream_id in visited:
+							break
 						structure_counts[downstream_id] = structure_counts.get(downstream_id, 0) + 1
+						cum_dist += dist
+						prev_intersection = intersection_point
+						step += 1
+						visited.add(downstream_id)
 						# Get the downstream segment of the downstream segment to see if the structure is within range of another segment (for the next iteration of the while loop)
 						current_feat = downstream_feat
 						downstream_feat = None
-						try :
-							# Finds the downstream river segment
-							downstream_feat = get_downstream_segment(hydro_layer, current_feat)
-						except Exception as e :
-							model_feedback.reportError(self.tr(f"Erreur dans get_downstream_segment du segment en aval du segment d'aval de la structure : {str(e)}"))
-						if downstream_feat is None:
+						downstream_id = current_feat['Id_UEA_aval']
+						#downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+						if not downstream_id:
+							# No downstream segment. We get out of the loop
 							break
+						downstream_feat = id_to_feat.get(downstream_id)
+					else:
+						# 1000 m limit reached. We get out of the loop
+						break
 
 				# Updating the progress bar
 				if total_features != 0:
@@ -169,8 +196,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 				seg_id = feat['Id_UEA']
 				struct_count = structure_counts.get(seg_id, 0)
 				f1_score = computeF1(struct_count)
-
-				# add both the structure count and the f1_score to the attributes table
+				# Add both the structure count and the f1_score to the attributes table
 				feat.setAttributes(feat.attributes() + [f1_score, struct_count])
 				sink.addFeature(feat, QgsFeatureSink.FastInsert)
 		except Exception as e :
@@ -212,7 +238,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment. Dans le cas d'un style fluvial à plusieurs chenaux (divagant, anabranche), une seule entrave est comptabilisée lorsque plusieurs structures sont localisées à la même distance amont-aval dans les divers chenaux.\n" \
+			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
@@ -226,78 +252,105 @@ class IndiceF1(QgsProcessingAlgorithm):
 		)
 
 
-def find_segment_for_structure(structure, hydro_layer, context, distance=5):
-	# Use the QGIS processing to select river segments located within `distance` meters of the structure point.
-	# Create a temporary layer with the structure point
-	point_layer = QgsVectorLayer("Point?crs=" + hydro_layer.crs().authid(), "structure_point", "memory")
-	provider = point_layer.dataProvider()
-	feat = QgsFeature()
-	feat.setGeometry(structure.geometry())
-	provider.addFeatures([feat])
-	point_layer.updateExtents
-
-	alg_params = {
-		'INPUT': hydro_layer,
-		'REFERENCE': point_layer,
-		'DISTANCE': distance,
-		'METHOD': 0 # 0, create a new selection
-	}
-	processing.run("native:selectwithindistance", alg_params, context=context, is_child_algorithm=True)
-	selected_feats = list(hydro_layer.getSelectedFeatures())
-	# Returns the first segment found (the closest one)
-	return selected_feats[0] if selected_feats else None
+def find_segment_for_structure_fast(struct, hydro_layer, hydro_index, max_dist=5):
+	pt = struct.geometry().asPoint()
+	candidate_ids = hydro_index.nearestNeighbor(pt, 5)
+	best = None
+	best_d = float('inf')
+	for fid in candidate_ids:
+		feat = next(hydro_layer.getFeatures(QgsFeatureRequest(fid)))
+		d = feat.geometry().distance(struct.geometry())
+		if d < best_d:
+			best_d = d
+			best = feat
+	return best if best and best_d <= max_dist else None
 
 
-def get_downstream_segment(hydro_layer, current_feat):
-	# Retrieves the ID of the downstream segment from the attribute field.
-	downstream_id = current_feat['Id_UEA_aval']
-	# Search for the corresponding segment in the layer
-	request = QgsFeatureRequest().setFilterExpression(f'"Id_UEA" = \'{downstream_id}\'')
-	return next(hydro_layer.getFeatures(request), None)
+def endpoints_as_points(geom: QgsGeometry):
+	# Return (p0, p1) as QgsPointXY, by taking the longuest point if MultiLine
+	if geom.isMultipart():
+		lines = geom.asMultiPolyline()
+		line = max(lines, key=lambda l: QgsGeometry.fromPolylineXY(l).length())
+	else:
+		line = geom.asPolyline()
+	if not line:
+		return None, None
+	return QgsPointXY(line[0]), QgsPointXY(line[-1])
 
+def nearest_endpoint_to_geom(p0: QgsPointXY, p1: QgsPointXY, other_geom: QgsGeometry):
+	gp0 = QgsGeometry.fromPointXY(p0)
+	gp1 = QgsGeometry.fromPointXY(p1)
+	d0 = gp0.distance(other_geom)
+	d1 = gp1.distance(other_geom)
+	return (gp0, d0) if d0 <= d1 else (gp1, d1)
 
-def get_intersection_point(feat1, feat2):
-	# Calculates the geometric intersection between the two segments
-	intersection = feat1.geometry().intersection(feat2.geometry())
-	# If the intersection is a point, return it
-	if intersection and intersection.type() == QgsWkbTypes.PointGeometry:
-		return intersection
-	# If it's a multipoint, we take the first one.
-	elif intersection and intersection.type() == QgsWkbTypes.MultiPointGeometry:
-		return intersection.asMultiPoint()[0]
-	# Otherwise, we return None
-	return None
-
-
-def compute_shortest_path(structure_point, target_point, hydro_layer, feedback, context):
-	# Extract the coordinates for the points
-	start_coords = structure_point.geometry().asPoint()
-	end_coords = target_point.asPoint()
-
-	# Find the shortest path on the river network between the downstream segment and the given structure to get the distance between the two
-	alg_params = {
-		'INPUT': hydro_layer,
-		'STRATEGY': 0,  # 0 = shortest path
-		'START_POINT': f"{start_coords.x()},{start_coords.y()}",
-		'END_POINT': f"{end_coords.x()},{end_coords.y()}",
-		'DEFAULT_DIRECTION': 2,
-		'DEFAULT_SPEED': 1,
-		'TOLERANCE': 5,
-		'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
-	}
-	result = processing.run("native:shortestpathpointtopoint", alg_params, context=context, is_child_algorithm=True)
-	temp_layer = context.takeResultLayer(result['OUTPUT'])
-
-	if not temp_layer.isValid():
-		feedback.reportError("La couche temporaire n'est pas valide.")
+def get_intersection_point(upstream_feat, downstream_feat, tol=1.0):
+	"""
+	Returns a QgsGeometry point belonging to upstream_feat (current segment),
+	representing the “junction” with downstream_feat.
+	Cases
+	1) explicit intersction -> point
+	2) close endpoints -> upstream enpoint as intersection
+	3) fallback nearestPoints -> nearest upstream enpoint 
+	4) Safeguard against parallele segments (distance at endpoints >> nearestPoints)
+	"""
+	g_up = upstream_feat.geometry()
+	g_dw = downstream_feat.geometry()
+	# 1) Explicit intersection
+	inter = g_up.intersection(g_dw)
+	if inter and not inter.isEmpty():
+		if inter.type() == QgsWkbTypes.PointGeometry:
+			if inter.isMultipart():
+				pts = inter.asMultiPoint()
+				return QgsGeometry.fromPointXY(pts[0]) if pts else None
+			else:
+				return inter
+		elif inter.type() == QgsWkbTypes.LineGeometry:
+			# Overlap : we take the upstream end closest to the downstream segment
+			p0, p1 = endpoints_as_points(g_up)
+			if p0 is None: 
+				return None
+			cand, distc = nearest_endpoint_to_geom(p0, p1, g_dw)
+			if distc <= tol:
+				return cand
+			# Otherwise fallback
+		# If PolygonGeometry or other, goes to fallback
+	# 2) Proximal endpoints (tol): the upstream end closest to the downstream segment is selected
+	p0, p1 = endpoints_as_points(g_up)
+	if p0 is None:
 		return None
-	if 'cost' not in temp_layer.fields().names():
-		feedback.reportError("Le champ 'cost' est introuvable dans la couche de chemin.")
+	cand, distc = nearest_endpoint_to_geom(p0, p1, g_dw)
+	if distc <= tol:
+		return cand  # point on upstream
+	# 3) Fallback nearestPoints
+	n_up = g_up.nearestPoint(g_dw)
+	n_dw = g_dw.nearestPoint(g_up)
+	if (n_up is None) or n_up.isEmpty() or (n_dw is None) or n_dw.isEmpty():
 		return None
+	# Minimum Euclidean distance between geometries (on potential internal points)
+	d_np = n_up.distance(n_dw)  # distance between the 2 points
+	# The junction is constrained to the upstream end closest to g_dw (not an interior point).
+	# (makes sure that lineLocatePoint() applies correctly to upstream)
+	cand, distc = nearest_endpoint_to_geom(p0, p1, g_dw)
+	# 4) Parallelism safeguard: if dist endpoint >> dist nearestPoints (on interior point), we doubt
+	if d_np > 0 and distc > 3.0 * d_np:
+		return None
+	# Otherwise, the most plausible upstream end is used as the junction
+	return cand
 
-	path_feat = next(temp_layer.getFeatures(), None)
-	# Return the length of the shortest path on the river network ('cost' field)
-	return path_feat['cost'] if path_feat else None
+
+def line_distance_between_points(line_geom: QgsGeometry,
+								ptA_geom: QgsGeometry,
+								ptB_geom: QgsGeometry) -> float:
+	"""
+	Returns the curvilinear distance along line_geom between ptA and ptB,
+	in meters (assumes metric CRS).
+	Uses lineLocatePoint to project points onto the polyline.
+	"""
+	a = line_geom.lineLocatePoint(ptA_geom)
+	b = line_geom.lineLocatePoint(ptB_geom)
+	# a and b are distances from the start of the line
+	return abs(b - a)
 
 
 def computeF1(struct_count):
