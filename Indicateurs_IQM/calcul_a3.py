@@ -72,11 +72,15 @@ class IndiceA3(QgsProcessingAlgorithm):
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		# Verify that the given segment ID is in the rivnet and PtRef layer
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
-			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches.")
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+		if seg_id_field not in [f.name() for f in ptref_layer.fields()] :
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche de PtRef largeur ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+		# Verify that the PtRef layer went through the preprocessings
 		if "Largeur_mod" not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ Largeur_mod est absent de la couche PtRef largeur! Veuillez vous assurer que la couche de points de références à préalablement passé par le script UEA_PtRef_join")
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
+		# Verify CRS units to be in metric (meters)
 		if not is_metric_crs(rivnet_layer.crs()) :
 			return False, self.tr(f"La couche de réseau hydro n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		if not is_metric_crs(ptref_layer.crs()) :
