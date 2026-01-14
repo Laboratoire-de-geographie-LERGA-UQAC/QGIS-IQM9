@@ -23,19 +23,23 @@
 *********************************************************************************
 """
 
+import processing
 from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (
 	QgsProcessing,
+	QgsProcessingUtils,
 	QgsPointXY,
 	QgsFeatureSink,
 	QgsField,
 	QgsProcessingException,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterFeatureSource,
+	QgsProcessingParameterBoolean,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink,
 	QgsSpatialIndex,
 	QgsWkbTypes,
+	QgsUnitTypes,
 	QgsFeatureRequest,
 	QgsGeometry
 )
@@ -46,9 +50,34 @@ class IndiceF1(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
+		self.addParameter(QgsProcessingParameterBoolean('structs_are_filtered', self.tr('La couche de structures fournie est elle filtrée (sortant de Filtrer structures) ?'), defaultValue=False))
 		self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrographique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
-		self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures filtrées (sortant de Filter structures; MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures (MTMD) (filtrées ou non)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
+
+
+	def checkParameterValues(self, parameters, context):
+		# Checks if all the parameters are given properly
+		structs_are_filtered = self.parameterAsBool(parameters, 'structs_are_filtered', context)
+		rivnet_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+		struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
+
+		if structs_are_filtered: # If the structure layer is already filtered
+			if 'highway' not in [field.name() for field in struct_layer.fields()]:
+				return False, self.tr("Vous avez indiqué fournir la couche structure filtrée, mais elle n'est pas filtrée ! Veuillez soit fournir la couche de structure filtrée (sortant du script IQM utils Filtrer structures) ou fournir la couche non filtrée ainsi que la couche de réseau routier.")
+		else :
+			if parameters['routes'] is None :
+				return False, self.tr('Vous devez fournir la couche nécessaire (Réseau routier) pour créer la couche de structures filtrées.')
+			road_layer = self.parameterAsVectorLayer(parameters, "routes", context)
+			if not is_metric_crs(road_layer.crs()) :
+				return False, self.tr(f"La couche de réseau routier n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+		if not is_metric_crs(rivnet_layer.crs()) :
+			return False, self.tr(f"La couche de réseau hydro n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+		if not is_metric_crs(struct_layer.crs()) :
+			return False, self.tr(f"La couche de structures n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+		return True, ''
+
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 		source = self.parameterAsSource(
@@ -81,13 +110,38 @@ class IndiceF1(QgsProcessingAlgorithm):
 		# Send some information to the user
 		model_feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
  
-		structure_counts = {}
-		struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
+		#  Opening the layer we need for the process
 		hydro_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+
 		# Create spatial index to make the finding of the nearest segment faster
 		hydro_index = QgsSpatialIndex(hydro_layer.getFeatures())
 		id_to_feat = {f['Id_UEA']: f for f in hydro_layer.getFeatures()}
 
+		# Make the filtered structure df if its not given
+		structs_are_filtered = self.parameterAsBool(parameters, 'structs_are_filtered', context)
+		if structs_are_filtered == False :
+			# If the sub watershed layer is not given
+			model_feedback.setProgressText(self.tr(f"Filtre des structures"))
+			try :
+				# Create the filtered structures
+				alg_params = {
+					'cours_eau' : parameters[self.INPUT],
+					'routes' : parameters['routes'],
+					'structures' : parameters['structs'],
+					'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
+				}
+				structs_data = processing.run('script:filterstructures', alg_params, context=context, feedback=model_feedback, is_child_algorithm=True)['OUTPUT']
+				struct_layer = QgsProcessingUtils.mapLayerFromString(structs_data, context)
+				if not struct_layer or not struct_layer.isValid() :
+					# Verify if the created layer is valid
+					model_feedback.reportError(self.tr("La couche structures filtrée est invalide."))
+					return {}
+			except Exception as e :
+				model_feedback.reportError(self.tr(f"Erreur dans la création de la couche de structures filtrées : {str(e)}"))
+		else : # If its already filtered makes the layer from what is given as a parameter
+			struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
+
+		structure_counts = {}
 		# Gets the number of features to iterate over for the progress bar
 		total_features = struct_layer.featureCount()
 		model_feedback.pushInfo(self.tr(f"\t {total_features} features (structures) à traiter"))
@@ -241,15 +295,24 @@ class IndiceF1(QgsProcessingAlgorithm):
 			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
 			"Paramètres\n" \
 			"----------\n" \
+			"Couche de structures déjà filtrée fournise: Booléen (optionnel; valeur par défaut : Faux)\n" \
+			"-> Détermine si la couche de structures fournise à déjà été filtrée (préalablement produite par Filtrer structures).\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-			"Structures filtrées : Vectoriel (points)\n" \
-			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel) ayant été préalablement filtrées par le script Filter structures. Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+			"Structures : Vectoriel (points)\n" \
+			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel) ayant été préalablement filtrées par le script Filtrer structures ou non. Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
+			"Réseau routier : Vectoriel (lignes; optionnel)\n" \
+			"-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Doit avoir préalablement avoir passé par le script Extraction routes d'OSM. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique du bassin versant avec le score de l'indice F1 calculé pour chaque UEA."
 		)
+
+
+def is_metric_crs(crs):
+	# True if the distance unit of the CRS is the meter
+	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
 
 
 def find_segment_for_structure_fast(struct, hydro_layer, hydro_index, max_dist=5):
@@ -277,12 +340,14 @@ def endpoints_as_points(geom: QgsGeometry):
 		return None, None
 	return QgsPointXY(line[0]), QgsPointXY(line[-1])
 
+
 def nearest_endpoint_to_geom(p0: QgsPointXY, p1: QgsPointXY, other_geom: QgsGeometry):
 	gp0 = QgsGeometry.fromPointXY(p0)
 	gp1 = QgsGeometry.fromPointXY(p1)
 	d0 = gp0.distance(other_geom)
 	d1 = gp1.distance(other_geom)
 	return (gp0, d0) if d0 <= d1 else (gp1, d1)
+
 
 def get_intersection_point(upstream_feat, downstream_feat, tol=1.0):
 	"""
@@ -339,9 +404,7 @@ def get_intersection_point(upstream_feat, downstream_feat, tol=1.0):
 	return cand
 
 
-def line_distance_between_points(line_geom: QgsGeometry,
-								ptA_geom: QgsGeometry,
-								ptB_geom: QgsGeometry) -> float:
+def line_distance_between_points(line_geom: QgsGeometry, ptA_geom: QgsGeometry, ptB_geom: QgsGeometry) -> float:
 	"""
 	Returns the curvilinear distance along line_geom between ptA and ptB,
 	in meters (assumes metric CRS).
