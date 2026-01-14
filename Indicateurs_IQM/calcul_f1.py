@@ -292,7 +292,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (barrages, traverses, ponts, etc.) qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
+			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (traverses, ponts, ponceaux, intersections etc.) du réseau routier ou ferroviaire qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Couche de structures déjà filtrée fournise: Booléen (optionnel; valeur par défaut : Faux)\n" \
