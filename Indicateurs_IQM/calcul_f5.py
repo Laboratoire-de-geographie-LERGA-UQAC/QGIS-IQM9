@@ -54,7 +54,6 @@ class IndiceF5(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
 	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
-	TRANSECT_RATIO = 3
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('bande_riveraine_polly', self.tr('Bande riveraine (peuplement forestier; MELCCFP)'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
@@ -76,9 +75,9 @@ class IndiceF5(QgsProcessingAlgorithm):
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		# Verify that the given segment ID is in the rivnet and PtRef layer
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
-			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches.")
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
 		if seg_id_field not in [f.name() for f in ptref_layer.fields()]:
-			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant du segment commun aux deux couches.")
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
 		# Verify that the given width attribute is in the PtRef layer
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")

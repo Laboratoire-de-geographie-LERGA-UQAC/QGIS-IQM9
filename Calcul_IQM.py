@@ -1,30 +1,98 @@
 
+"""
+*********************************************************************************
+*																				*
+*		QGIS-IQM9 is a program developed for QGIS as a tool to automatically	*
+*	calculate the Morphological Quality Index (MQI) of river systems			*
+*	Copyright (C) 2025 Laboratoire d'expertise et de recherche en géographie	*
+*	appliquée (LERGA) de l'Université du Québec à Chicoutimi (UQAC)				*
+*																				*
+*	This program is free software: you can redistribute it and/or modify		*
+*	it under the terms of the GNU Affero General Public License as published	*
+*	by the Free Software Foundation, either version 3 of the License, or		*
+*	(at your option) any later version.											*
+*																				*
+*	This program is distributed in the hope that it will be useful,				*
+*	but WITHOUT ANY WARRANTY; without even the implied warranty of				*
+*	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				*
+*	GNU Affero General Public License for more details.							*
+*																				*
+*	You should have received a copy of the GNU Affero General Public License	*
+*	along with this program.  If not, see <https://www.gnu.org/licenses/>.		*
+*																				*
+*********************************************************************************
+"""
+
+
 import processing
 import time
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
+	QgsProject,
+	QgsUnitTypes,
 	QgsProcessing,
 	QgsProcessingUtils,
 	QgsProcessingAlgorithm,
 	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterRasterLayer,
+	QgsProcessingParameterString,
 	QgsProcessingParameterFeatureSink
 )
 
 
 class compute_iqm(QgsProcessingAlgorithm):
+	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
+	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('bande_riv', self.tr('Bande riveraine (peuplement forestier; MELCCFP)'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
 		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+
+
+	def checkParameterValues(self, parameters, context):
+		# Check if the parameters are given properly
+		br_layer = self.parameterAsVectorLayer(parameters, 'bande_riv', context)
+		dams_layer = self.parameterAsVectorLayer(parameters, 'dams', context)
+		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		dem_layer = self.parameterAsRasterLayer(parameters, 'dem', context)
+		ptref_layer  = self.parameterAsVectorLayer(parameters, 'ptref_widths', context)
+		road_layer = self.parameterAsVectorLayer(parameters, "routes", context)
+		struct_layer = self.parameterAsVectorLayer(parameters, "structures", context)
+		landuse_layer = self.parameterAsRasterLayer(parameters, 'landuse', context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
+		# Dictionnary to iterate over the layers
+		lyr_dict = {"bande riv.":br_layer, "barrages":dams_layer, "res. hydro.":rivnet_layer, "DEM":dem_layer,"PtRef largeur":ptref_layer,"routes":road_layer, "structures":struct_layer, "util. terr.":landuse_layer}
+		# Get project CRS to verify they are all in the project CRS
+		project_crs = QgsProject.instance().crs().authid()
+		# Verify lyrs CRS and unit types
+		for name, lyr in lyr_dict.items():
+			if lyr.crs().authid() != project_crs :
+				return False, self.tr(f"La couche de {name} ne correspond pas au CRS du projet! Veuillez vérifier le CRS de la couche et réessayer.")
+			if not is_metric_crs(lyr.crs()) :
+				return False, self.tr(f"La couche de {name} n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+		# Verify that PtRef layer as passed through the UEA_PtRef_join script and that
+		if "Largeur_mod" not in [f.name() for f in ptref_layer.fields()]:
+			return False, self.tr(f"Le champ Largeur_mod est absent de la couche PtRef largeur! Veuillez vous assurer que la couche de points de références à préalablement passé par le script UEA_PtRef_join")
+		if width_field not in [f.name() for f in ptref_layer.fields()]:
+			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
+		# Verify that seg_id_field is in the two lyrs (stream_network and PtRef)
+		if seg_id_field not in [f.name() for f in rivnet_layer.fields()] :
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+		if seg_id_field not in [f.name() for f in ptref_layer.fields()] :
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche de PtRef largeur ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+		return True, ''
+
 
 	def processAlgorithm(self, parameters, context, model_feedback):
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
@@ -98,6 +166,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 		# =====================$|  Index calculation  |$=====================
 
 		feedback.setProgressText(self.tr(f"Calcul des indices..."))
+		# Initialising needed paramters
+		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 
 		# 	Index A1
 		feedback.setProgressText(self.tr(f"- Calcul de l'indice A1"))
@@ -140,10 +211,13 @@ class compute_iqm(QgsProcessingAlgorithm):
 		start_time = time.perf_counter()
 		try :
 			alg_params = {
+				'dam_distance' : 5, # default value : 5m
 				'stream_network' : outputs['IndiceA2']['OUTPUT'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'dams' : parameters['dams'],
 				'landuse' : parameters['landuse'],
 				'ptref_widths' : parameters['ptref_widths'],
+				'ptref_width_field' : width_field, # default : Largeur_mod
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA3'] = processing.run('script:indicea3', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -175,6 +249,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		start_time = time.perf_counter()
 		try :
 			alg_params = {
+				'structs_are_filtered': True,
 				'INPUT': outputs['IndiceA4']['OUTPUT'],
 				'structs' : outputs['FiltrerStructures']['OUTPUT'],
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
@@ -231,7 +306,6 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'ptref_widths': parameters['ptref_widths'],
-				#'ratio': 2.5,
 				'rivnet': outputs['IndiceF3']['OUTPUT'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
@@ -250,9 +324,11 @@ class compute_iqm(QgsProcessingAlgorithm):
 			alg_params = {
 				'bande_riveraine_polly': parameters['bande_riv'],
 				'ptref_widths': parameters['ptref_widths'],
-				#'ratio': 2.5,
+				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF4']['OUTPUT'],
-				#'transectsegment': 25,
+				'segment_id_field': seg_id_field, # default : Id_UEA
+				'target_pts': 200, # default : 200
+				'step_min': 10, # default : 10m
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceF5'] = processing.run('script:indicef5', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -318,10 +394,14 @@ class compute_iqm(QgsProcessingAlgorithm):
 			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
 			"MNT LiDAR (10 m) : Matriciel\n" \
 			"-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
 			"PtRef largeur : Vectoriel (points)\n" \
 			"-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			" Champ PtRef largeur : Chaine de caractère ('Largeur_mod' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant la largeur du chenal. Source des données : Couche PtRef largeur.\n" \
 			"Réseau routier : Vectoriel (lignes)\n" \
 			"-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
 			"Structures : Vectoriel (points)\n" \
@@ -360,3 +440,6 @@ class compute_iqm(QgsProcessingAlgorithm):
 	def createInstance(self):
 		return compute_iqm()
 
+def is_metric_crs(crs):
+	# True if the distance unit of the CRS is the meter
+	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
