@@ -267,9 +267,13 @@ class compute_iqm(QgsProcessingAlgorithm):
 		start_time = time.perf_counter()
 		try :
 			alg_params = {
-				'anthropic_layers': parameters['routes'],
+				'roads': parameters['routes'],
 				'ptref_widths': parameters['ptref_widths'],
+				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF1']['OUTPUT'],
+				'segment_id_field': seg_id_field, # default : Id_UEA
+				'target_pts': 200, # default : 200
+				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
@@ -286,9 +290,13 @@ class compute_iqm(QgsProcessingAlgorithm):
 		start_time = time.perf_counter()
 		try :
 			alg_params = {
+				'roads': parameters['routes'],
 				'ptref_widths': parameters['ptref_widths'],
-				'anthropic_layers': parameters['routes'],
+				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF2']['OUTPUT'],
+				'segment_id_field': seg_id_field, # default : Id_UEA
+				'target_pts': 200, # default : 200
+				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
@@ -300,7 +308,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 			return {}
 
 
-		# 	Index F4
+		# Index F4
 		feedback.setProgressText(self.tr(f"- Calcul de l'indice F4"))
 		start_time = time.perf_counter()
 		try :
