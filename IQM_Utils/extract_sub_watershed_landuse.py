@@ -334,7 +334,7 @@ def reduce_landuse(parameters, context, feedback):
 		'250', '261', '1', '263', '280', '1', # Coupes de regeneration
 		'101','199','2', #Agricoles
 		'300', '360', '3', #Anthropisé
-		'20', '27', '4',
+		'20', '27', '4', #Aquatique
 		'2000', '9000', '1' #Milieux humides
 	]
 	# Reclassify land use

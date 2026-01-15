@@ -62,7 +62,8 @@ class IndiceF1(QgsProcessingAlgorithm):
 		structs_are_filtered = self.parameterAsBool(parameters, 'structs_are_filtered', context)
 		rivnet_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
 		struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
-
+		if not struct_layer or not struct_layer.isValid() :
+			return False, self.tr("La couche de structures n'est pas valide ! Vérifiez que vous fournissez bien une couche.")
 		if structs_are_filtered: # If the structure layer is already filtered
 			if 'highway' not in [field.name() for field in struct_layer.fields()]:
 				return False, self.tr("Vous avez indiqué fournir la couche structure filtrée, mais elle n'est pas filtrée ! Veuillez soit fournir la couche de structure filtrée (sortant du script IQM utils Filtrer structures) ou fournir la couche non filtrée ainsi que la couche de réseau routier.")
@@ -92,8 +93,8 @@ class IndiceF1(QgsProcessingAlgorithm):
 
 		#Adding new field to output
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Indice F1", QVariant.Int))
 		sink_fields.append(QgsField("Nb_struct_amont", QVariant.Int))
+		sink_fields.append(QgsField("Indice F1", QVariant.Int))
 
 		(sink, dest_id) = self.parameterAsSink(
 			parameters,
@@ -251,7 +252,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 				struct_count = structure_counts.get(seg_id, 0)
 				f1_score = computeF1(struct_count)
 				# Add both the structure count and the f1_score to the attributes table
-				feat.setAttributes(feat.attributes() + [f1_score, struct_count])
+				feat.setAttributes(feat.attributes() + [struct_count, f1_score])
 				sink.addFeature(feat, QgsFeatureSink.FastInsert)
 		except Exception as e :
 			model_feedback.reportError(self.tr(f"Erreur dans le calcul de F1 et le sink des features : {str(e)}"))

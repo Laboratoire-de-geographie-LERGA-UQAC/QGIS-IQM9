@@ -121,7 +121,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 		model_feedback.setProgressText(self.tr("Dissolve des polygones de bande riveraine..."))
-		# Dissoudre puis simplifier la bande (une seule fois)
+		# Dissolve than simplify the riparian zone (only once)
 		bande_dissolved = processing.run('native:dissolve', {
 			'INPUT': bande_layer,
 			'SEPARATE_DISJOINT': False,
@@ -160,7 +160,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 				sid = segment[seg_id_field]
 				# Adjusting the number of steps based on segment length
 				if seg_len <= 0: # If segment length is lesser or equal to zero
-					warnings.warn("always",self.tr(f"L'UEA dont le {seg_id_field} est {sid} est de longueur inférieure ou égale à zéro ! Indice F5 mis à 4"), UserWarning)
+					#warnings.warn("always",self.tr(f"L'UEA dont le {seg_id_field} est {sid} est de longueur inférieure ou égale à zéro ! Indice F5 mis à 4"), UserWarning)
 					model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale zéro mètre ! Veuillez vérifier sa validité Indice F5 mis à 4."))
 					segment.setAttributes(segment.attributes() + [0.0, 0.0, 4])
 					sink.addFeature(segment, QgsFeatureSink.FastInsert)
@@ -190,7 +190,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 				w_max = max_width_for_segment(ptref_idx_entry)  # 0.0 if no PtRef
 				# 2) Adaptative clip radius (max offset + L + margin)
 				R = (w_max / 2.0) + TRANSECT_LENGTH + MARGIN
-				# 3) Buffer adaptatif et clip de la bande dissoute simplifiée
+				# 3) Adaptive buffer and simplified dissolved riparian zone
 				clip_buf = seg_geom.buffer(R, 8)
 				# Intersect the geometry of the riparian zone polygon with the segment max width buffer
 				band_clip = QgsGeometry()
@@ -419,8 +419,8 @@ def direction_angle_at_point_fast(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> f
 
 def direction_angle_at_point(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 	"""
-	Angle (radians) de la tangente locale au segment au point 'pt_xy'.
-	Méthode robuste : trouver le petit segment de polyline le plus proche, puis angle de ce segment.
+	Angle (radians) of the local tangent to the segment at point 'pt_xy'.
+	Robust method: find the closest small polyline segment, then find the angle of that segment.
 	"""
 	parts = seg_geom.asMultiPolyline()
 	if not parts:
@@ -443,31 +443,27 @@ def direction_angle_at_point(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 
 def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> float or None:
 	"""
-	Cherche la largeur la plus proche via index spatial pour CE segment.
-	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'width_field': 'Largeur_mod'}
+	Find the closest width via spatial index for this segment.
+	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'width_field': 'Width_mod'}
 	"""
 	if not seg_ptref_idx_entry:
 		return None
 	idx = seg_ptref_idx_entry['index']
 	feats = seg_ptref_idx_entry['features']
 	width_field = seg_ptref_idx_entry['width_field']
-
-	# petite boite de recherche (~50 m autour du point) pour limiter les candidats
-	# (tu peux ajuster le rayon selon la densité des PtRef)
+	# small search box (~50 m around the point) to limit candidates
+	# (you can adjust the radius according to the density of PtRef)
 	r = 100
 	rect = QgsRectangle(center_pt.x() - r, center_pt.y() - r, center_pt.x() + r, center_pt.y() + r)
 	candidate_ids = idx.intersects(rect)
-
 	best_w = None
 	best_d = float('inf')
 	center_g = QgsGeometry.fromPointXY(center_pt)
-
-	# si aucun candidat dans la bbox, on essaie tous (rare)
+	# if there are no candidates in the bbox, we try them all (rare)
 	if not candidate_ids:
 		candidate_ids = [f.id() for f in feats]
-
-	# Accès direct aux features par FID via une requête; sinon boucle locale
-	# (ici, on parcourt la liste 'feats', c'est plus simple et rapide en mémoire)
+	# Direct access to features by FID via a query; otherwise local loop
+	# (here, we go through the ‘feats’ list, which is simpler and faster in memory)
 	id_to_feat = {f.id(): f for f in feats}
 	for fid in candidate_ids:
 		pf = id_to_feat.get(fid)
@@ -477,7 +473,7 @@ def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> f
 		if not g or g.isEmpty():
 			continue
 		d = g.distance(center_g)
-		# lecture de la largeur
+		# Read width
 		try:
 			val = pf[width_field]
 			w = float(val) if val is not None else None
@@ -485,7 +481,6 @@ def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> f
 			w = None
 		if w is not None and d < best_d:
 			best_d, best_w = d, w
-
 	return best_w
 
 
@@ -569,19 +564,19 @@ def line_intersection_length_union(line_geom: QgsGeometry, band_union: QgsGeomet
 
 
 def computeF5_from_sides(p30, p15to30):
-	"""  Classe F5 basée sur la proportion de rives conformes par seuil """
-	# Classe 0 : ≥>30 m sur > 90% de la longueur
+	"""  Class F5 based on the proportion of compliant banks per threshold """
+	# Classe 0 : ≥>30 m on > 90% of length
 	if p30 > 0.90:
 		return 0
-	# Classe 1 : ≥>30 m sur > 66% de la longueur
+	# Classe 1 : ≥>30 m on > 66% of length
 	if p30 > 0.66:
 		return 1
 	# Classe 2 :
-	# - 15-30 m sur > 66%   OU
-	# - ≥>30 m sur 33-66%
+	# - 15-30 m on > 66%   OU
+	# - ≥>30 m on 33-66%
 	if (p15to30 > 0.66) or (0.33 <= p30 <= 0.66):
 		return 2
-	# Classe 3 : 15-30 m (discontinue) sur 33-66% et pas de ≥30 m significatif
+	# Classe 3 : 15-30 m (discontinued) sur 33-66% et pas de ≥30 m significatif
 	if (0.33 <= p15to30 <= 0.66) and (p30 < 0.33):
 		return 3
 	# Classe 4 : < 33% en tout
