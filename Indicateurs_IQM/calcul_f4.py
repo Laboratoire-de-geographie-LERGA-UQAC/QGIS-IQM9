@@ -103,9 +103,8 @@ class IndiceF4(QgsProcessingAlgorithm):
 			# print(f"{unnatural_widths=}")
 			return 1 - (unnatural_widths / difs_percent.size)
 
-		def computeF4(width_array, div_distance):
-			# Compute F4 from width array
-			ratio = natural_width_ratio(width_array, div_distance)
+		def computeF4(ratio):
+			# Compute F4
 			if (ratio >= 0.9):
 				return 0
 			if (ratio >= 0.66):
@@ -121,6 +120,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 		# Define Sink fields
 		sink_fields = source.fields()
+		sink_fields.append(QgsField("Pourc_var_long", QVariant.Double, prec=2))
 		sink_fields.append(QgsField("Indice F4", QVariant.Int))
 
 		# Define sink
@@ -150,11 +150,12 @@ class IndiceF4(QgsProcessingAlgorithm):
 			# Store normal length in numpy arrays
 			width_array = get_points_widths(points_along_line, parameters)
 
-			# Determin the IQM Score
-			indiceF4 = computeF4(width_array, div_distance)
+			# Determine the IQM Score
+			ratio = natural_width_ratio(width_array, div_distance)
+			indiceF4 = computeF4(ratio)
 			#Write Index
 			segment.setAttributes(
-				segment.attributes() + [indiceF4]
+				segment.attributes() + [ratio, indiceF4]
 			)
 			# Add a feature to sink
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
@@ -165,7 +166,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 			else:
 				progress = 0
 			model_feedback.setProgress(progress)
-			model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+			#model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
 		# Ending message
 		model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
