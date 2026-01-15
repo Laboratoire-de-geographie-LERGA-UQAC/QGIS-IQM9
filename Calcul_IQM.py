@@ -314,7 +314,12 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'ptref_widths': parameters['ptref_widths'],
+				'ptref_widths': parameters['ptref_widths'],
+				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF3']['OUTPUT'],
+				'segment_id_field': seg_id_field, # default : Id_UEA
+				'target_pts': 200, # default : 200
+				'step_min': 10, # default : 10m
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceF4'] = processing.run('script:indicef4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
