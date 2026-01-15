@@ -36,6 +36,7 @@ from qgis.core import (
 	QgsGeometry,
 	QgsPointXY,
 	QgsField,
+	QgsUnitTypes,
 	QgsProcessingParameterNumber,
 	QgsFeatureSink,
 	QgsSpatialIndex,
@@ -53,23 +54,6 @@ class IndiceF2(QgsProcessingAlgorithm):
 	OUTPUT = "OUTPUT"
 	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
-
-	# tempDict = {
-	# 	name: QgsProcessingUtils.generateTempFilename(name)
-	# 	for name in [
-	# 		"reclass_landuse.tif",
-	# 		"vector_landuse.shp",
-	# 		"side_buffer.shp",
-	# 	]
-	# }
-
-	# tempDict.update({
-	# 	name: 'TEMPORARY_OUTPUT'
-	# 	for name in [
-	# 		"points.shp",
-	# 		"merged_layer.shp",
-	# 	]
-	# })
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer("roads", self.tr("Réseau routier (OSM)"),  types=[QgsProcessing.TypeVectorLine], defaultValue=None))
@@ -278,6 +262,11 @@ class IndiceF2(QgsProcessingAlgorithm):
 			"Couche de sortie : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique du bassin versant avec le score de l'indice F2 calculé pour chaque UEA."
 		)
+
+
+def is_metric_crs(crs):
+	# True if the distance unit of the CRS is the meter
+	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
 
 
 def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str):
