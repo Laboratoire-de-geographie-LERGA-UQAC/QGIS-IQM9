@@ -204,7 +204,6 @@ class IndiceA3(QgsProcessingAlgorithm):
 						current_feat = downstream_feat
 						downstream_feat = None
 						downstream_id = current_feat['Id_UEA_aval']
-						#downstream_feat = get_downstream_segment(hydro_layer, current_feat)
 						if not downstream_id:
 							# No downstream segment. We get out of the loop
 							break

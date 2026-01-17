@@ -29,13 +29,14 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		feedback = QgsProcessingMultiStepFeedback(12, model_feedback)
+		feedback = QgsProcessingMultiStepFeedback(13, model_feedback)
+		dams_layer = self.parameterAsVectorLayer(parameters, 'dams', context)
 		outputs = {}
 
-		feedback.setProgressText(self.tr(f"Polygonisation du bassin versant."))
+		feedback.setProgressText(self.tr(f"Polygonisation du bassin versant..."))
 		try :
 			# Extract and snap outlets
-			feedback.setProgressText(self.tr(f"Extraction and snap outlet."))
+			feedback.setProgressText(self.tr(f"Extraction et mise en place des embouchures de bassin."))
 			alg_params = {
 				'dem': parameters['D8'],
 				'stream_network': parameters['stream_network'],
@@ -44,8 +45,8 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 			outputs['snappedoutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 			feedback.setCurrentStep(1)
 			# Generate watershed polygon
-			feedback.setProgressText(self.tr(f"Generate watershed polygon."))
-			watersheds = generate_basin_polygons(parameters['D8'], outputs['snappedoutlets'], temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
+			feedback.setProgressText(self.tr(f"Génération des polygones de bassins."))
+			watersheds = generate_basin_polygons(parameters['D8'], outputs['snappedoutlets'], temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=feedback)
 			feedback.setCurrentStep(2)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans la polygonisation du bassin versant : {str(e)}"))
@@ -53,7 +54,7 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		feedback.setProgressText(self.tr(f"Traitement polygones pour les barrages."))
+		feedback.setProgressText(self.tr(f"Reclassification et calcul de l'aire d'utilisation du territoire..."))
 		try :
 			# Compute area for all watersheds under "watersheds_area" field
 			alg_params = {
@@ -67,86 +68,108 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 				'OUTPUT': 'memory:watersheds'
 			}
 			watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-			feedback.setCurrentStep(4)
-			# Reclassify landuse
-			feedback.setProgressText(self.tr(f"Reclassify landuse."))
-			outputs['reclassifiedlanduse'] = reduce_landuse(parameters['landuse'], context, feedback=None) # peut-être que ça me marcheras pas avec le changement de param
 			feedback.setCurrentStep(3)
-			# Compute landuse area for each watershed
-			watersheds = compute_landuse_areas(outputs['reclassifiedlanduse'], watersheds, context=context, feedback=None)
+			# Reclassify landuse
+			feedback.setProgressText(self.tr(f"Reclassification de l'aire d'utilisation du territoire."))
+			outputs['reclassifiedlanduse'] = reduce_landuse(parameters['landuse'], context, feedback=None)
 			feedback.setCurrentStep(4)
-			# Remove duplicate dam points
-			alg_params = {
-				'INPUT': parameters['dams'],
-				'OUTPUT': 'memory:dams_edited'
-			}
-			dams_edited = processing.run('native:deleteduplicategeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			if feedback.isCanceled():
+				return {}
+			# Compute landuse area for each watershed
+			feedback.setProgressText(self.tr(f"Calcul de l'aire d'utilisation du territoire."))
+			watersheds = compute_landuse_areas(outputs['reclassifiedlanduse'], watersheds, context=context, feedback=None)
 			feedback.setCurrentStep(5)
-			# Add index to edited dam points
-			alg_params = {
-				'INPUT': dams_edited,
-				'FIELD_NAME': 'row_index',
-				'FIELD_TYPE': 1,  # 1 = integer
-				'FIELD_LENGTH': 10,
-				'NEW_FIELD': True,
-				'FORMULA': '@row_number + 1',  # Start at 1
-				'OUTPUT': QgsProcessingUtils.generateTempFilename("dams_edited.shp")
-			}
-			outputs['dams_edited'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-			feedback.setCurrentStep(6)
-			# Generate dam watershed polygon
-			damsheds = generate_basin_polygons(parameters['D8'], outputs['dams_edited'], temp_prefix="damwatersheds", CRS=QgsProject.instance().crs(), context=context, feedback=None)
-			feedback.setCurrentStep(7)
 		except Exception as e :
-			feedback.reportError(self.tr(f"Erreur dans traitement polygones pour barrages : {str(e)}"))
-
+			feedback.reportError(self.tr(f"Erreur dans reclassification et calcul aire util. terr.: {str(e)}"))
 		if feedback.isCanceled():
 			return {}
 
-		feedback.setProgressText(self.tr(f"Calcul superficie des barrages."))
+		feedback.setProgressText(self.tr(f"Traitement des données de barrages..."))
 		try :
-			# Compute area for dam watersheds
-			alg_params = {
-				'INPUT': damsheds,
-				'FIELD_NAME': 'dam_area',
-				'FIELD_TYPE': 0,  # 0 = float
-				'FIELD_LENGTH': 10,
-				'FIELD_PRECISION': 3,
-				'NEW_FIELD': True,
-				'FORMULA': '$area',
-				'OUTPUT': QgsProcessingUtils.generateTempFilename("damsheds_area.shp")
-			}
-			outputs['damsheds_area'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-			feedback.setCurrentStep(8)
-			# Attach 'dam_area' back to dam points
-			alg_params = {
-				'INPUT': outputs['dams_edited'],
-				'FIELD': 'row_index',
-				'INPUT_2': outputs['damsheds_area'],
-				'FIELD_2': 'DN',
-				'FIELDS_TO_COPY': ['dam_area'],
-				'METHOD': 1,  # 1 = one-to-one
-				'DISCARD_NONMATCHING': False,
-				'OUTPUT': 'memory:dams_points_area'
-			}
-			dams_points_area = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-			feedback.setCurrentStep(9)
-			processing.run('native:createspatialindex', {'INPUT': dams_points_area}, context=context, feedback=None, is_child_algorithm=True)
-			feedback.setCurrentStep(10)
-			# Locate dam points in watersheds and sum total dam area per watershed
-			# 'memory:watersheds'
-			alg_params = {
-				'INPUT': watersheds,
-				'PREDICATE': [1],  # 1 = contains
-				'JOIN': dams_points_area,
-				'JOIN_FIELDS': ['dam_area'],
-				'SUMMARIES': [5],  # 5 = sum
-				'PREFIX': '',
-				'DISCARD_NONMATCHING': False,
-				'OUTPUT': 'memory:watersheds'
-			}
-			watersheds = processing.run("qgis:joinbylocationsummary", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-			feedback.setCurrentStep(11)
+			# Verify if theres dams in the dams layer 
+			if (not dams_layer) or (dams_layer.featureCount() == 0):
+				# Add a field 'dam_area_sum' = 0 to each sub-watershed
+				alg_params = {
+					'INPUT': watersheds,
+					'FIELD_NAME': 'dam_area_sum',
+					'FIELD_TYPE': 0, # Float
+					'FIELD_LENGTH': 10,
+					'FIELD_PRECISION': 2,
+					'FORMULA': '0',
+					'OUTPUT': 'memory:watersheds'
+				}
+				watersheds = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.pushInfo(self.tr('Aucun barrage dans la couche de barrages. Aire des barrage par BV (dam_area_sum) mis à zéro (0).'))
+				feedback.setCurrentStep(12)
+			else :
+				# Remove duplicate dam points
+				alg_params = {
+					'INPUT': parameters['dams'],
+					'OUTPUT': 'memory:dams_edited'
+				}
+				dams_edited = processing.run('native:deleteduplicategeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.setCurrentStep(6)
+				# Add index to edited dam points
+				alg_params = {
+					'INPUT': dams_edited,
+					'FIELD_NAME': 'row_index',
+					'FIELD_TYPE': 1,  # 1 = integer
+					'FIELD_LENGTH': 10,
+					'NEW_FIELD': True,
+					'FORMULA': '@row_number + 1',  # Start at 1
+					'OUTPUT': QgsProcessingUtils.generateTempFilename("dams_edited.shp")
+				}
+				outputs['dams_edited'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.setCurrentStep(7)
+				# Generate dam watershed polygon
+				feedback.setProgressText(self.tr(f"Génération des polygones de bassins des barrages."))
+				damsheds = generate_basin_polygons(parameters['D8'], outputs['dams_edited'], temp_prefix="damwatersheds", CRS=QgsProject.instance().crs(), context=context, feedback=feedback)
+				feedback.setCurrentStep(8)
+				if feedback.isCanceled():
+					return {}
+				feedback.setProgressText(self.tr(f"Calcul superficie de drainage des barrages."))
+				# Compute area for dam watersheds
+				alg_params = {
+					'INPUT': damsheds,
+					'FIELD_NAME': 'dam_area',
+					'FIELD_TYPE': 0,  # 0 = float
+					'FIELD_LENGTH': 10,
+					'FIELD_PRECISION': 3,
+					'NEW_FIELD': True,
+					'FORMULA': '$area',
+					'OUTPUT': QgsProcessingUtils.generateTempFilename("damsheds_area.shp")
+				}
+				outputs['damsheds_area'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.setCurrentStep(9)
+				# Attach 'dam_area' back to dam points
+				alg_params = {
+					'INPUT': outputs['dams_edited'],
+					'FIELD': 'row_index',
+					'INPUT_2': outputs['damsheds_area'],
+					'FIELD_2': 'DN',
+					'FIELDS_TO_COPY': ['dam_area'],
+					'METHOD': 1,  # 1 = one-to-one
+					'DISCARD_NONMATCHING': False,
+					'OUTPUT': 'memory:dams_points_area'
+				}
+				dams_points_area = processing.run('native:joinattributestable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.setCurrentStep(10)
+				processing.run('native:createspatialindex', {'INPUT': dams_points_area}, context=context, feedback=None, is_child_algorithm=True)
+				feedback.setCurrentStep(11)
+				# Locate dam points in watersheds and sum total dam area per watershed
+				# 'memory:watersheds'
+				alg_params = {
+					'INPUT': watersheds,
+					'PREDICATE': [1],  # 1 = contains
+					'JOIN': dams_points_area,
+					'JOIN_FIELDS': ['dam_area'],
+					'SUMMARIES': [5],  # 5 = sum
+					'PREFIX': '',
+					'DISCARD_NONMATCHING': False,
+					'OUTPUT': 'memory:watersheds'
+				}
+				watersheds = processing.run("qgis:joinbylocationsummary", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+				feedback.setCurrentStep(12)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans calcul superficie barrage : {str(e)}"))
 
@@ -154,7 +177,7 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 			return {}
 
 		# Returning the processed watershed layer
-		feedback.setProgressText(self.tr(f"Création de la couche de résultats"))
+		feedback.setProgressText(self.tr(f"Création de la couche de résultats..."))
 		try :
 			watersheds_layer = QgsProcessingUtils.mapLayerFromString(watersheds, context)
 		except Exception as e :
@@ -174,6 +197,7 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 					sink.addFeature(feat, QgsFeatureSink.FastInsert)
 				# Ending message
 				feedback.setProgressText(self.tr('\tProcessus terminé !'))
+				feedback.setCurrentStep(13)
 				return {self.OUTPUT: dest_id}
 			except Exception as e :
 				feedback.reportError(self.tr(f"Erreur dans sink des features finaux : {str(e)}"))
@@ -192,7 +216,7 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 
 
 	def displayName(self):
-		return self.tr("Extract sous-BV et landuse (A123)")
+		return self.tr("Extract sous-BV et landuse (A1 et A2)")
 
 
 	def group(self):
@@ -239,7 +263,7 @@ def generate_basin_polygons(d8_pointer, pour_points, temp_prefix, CRS, context, 
 		'esri_pntr': False,
 		'output': prefix + '.tif'
 	}
-	output_tif = processing.run('wbt:UnnestBasins', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['output']
+	output_tif = processing.run('wbt:UnnestBasins', alg_params, context=context, feedback=None, is_child_algorithm=True)['output']
 
 	# Find all watershed rasters and sort them by index
 	base = Path(output_tif).with_suffix('')
@@ -250,6 +274,8 @@ def generate_basin_polygons(d8_pointer, pour_points, temp_prefix, CRS, context, 
 	# Polygonize each raster layer
 	vecs = []
 	for ras in rasters:
+		if feedback.isCanceled():
+			return {}
 		shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}_poly.shp")
 		poly = processing.run('gdal:polygonize', {
 			'BAND': 1,
@@ -258,14 +284,14 @@ def generate_basin_polygons(d8_pointer, pour_points, temp_prefix, CRS, context, 
 			'FIELD': 'DN',
 			'INPUT': str(ras),
 			'OUTPUT': shp
-			}, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+			}, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 		# Fix geometries and return layer
 		# 
 		alg_params = {
 			'INPUT': poly,
 			'OUTPUT': f'memory:{Path(shp).stem}_fixed'
 		}
-		fixed = processing.run('native:fixgeometries', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+		fixed = processing.run('native:fixgeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 		vecs.append(fixed)
 	# Merge the basin polygons into one layer
 	merge_shp = QgsProcessingUtils.generateTempFilename(f"{temp_prefix}.shp")
@@ -274,7 +300,7 @@ def generate_basin_polygons(d8_pointer, pour_points, temp_prefix, CRS, context, 
 		'CRS': CRS,
 		'OUTPUT': merge_shp
 	}
-	merged = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=feedback,	is_child_algorithm=True)['OUTPUT']
+	merged = processing.run('native:mergevectorlayers', alg_params, context=context, feedback=None,	is_child_algorithm=True)['OUTPUT']
 	# Load merged result as QgsVectorLayer
 	merged_layer = QgsVectorLayer(merged, f"{temp_prefix}_merged", "ogr")
 	# Create spatial index
