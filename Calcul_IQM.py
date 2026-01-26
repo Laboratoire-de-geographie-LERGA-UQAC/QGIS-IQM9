@@ -234,6 +234,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'INPUT': outputs['IndiceA3']['OUTPUT'],
+				'segment_id_field' :  seg_id_field, # default : Id_UEA
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA4'] = processing.run('script:indicea4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
