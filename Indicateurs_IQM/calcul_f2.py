@@ -321,9 +321,11 @@ def polygonize_landuse(parameters, context, feedback):
 		'EXTRA' : '',
 		'OUTPUT' : 'TEMPORARY_OUTPUT'
 	}
-	clip = processing.run("gdal:cliprasterbymasklayer", alg_params, context=context, feedback=feedback)['OUTPUT']
-	# Reclassify land use
-	CLASSES = ['300', '360', '1']  #Anthropised from 300 to 360 are replaced by 1. Other values become nothing
+	clip = processing.run("gdal:cliprasterbymasklayer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+	# Reclassify land use. Keep agriculture and anthropised and drop other landuse classes.
+	CLASSES = ['101', '198', '1', #Agriculture from 101 to 198 are replaced by 1.
+        '300', '360', '1' # Anthropised from 300 to 360 are replaced by 1.
+    ]
 	alg_params = {
 		'DATA_TYPE' : 0,  # Byte
 		'INPUT_RASTER' : clip ,#parameters['landuse'],
