@@ -365,7 +365,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'FIELD_NAME': 'Score IQM9',
 				'FIELD_PRECISION': 2,
 				'FIELD_TYPE': 0,  # Décimal (double)
-				'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 40', # for each river segment : IQM = 1 - (total score/max score)
+				'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 44', # for each river segment : IQM = 1 - (total score/max score)
 				'INPUT': outputs['IndiceF5']['OUTPUT'],
 				'OUTPUT': parameters['Iqm']
 			}
