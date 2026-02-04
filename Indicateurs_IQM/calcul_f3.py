@@ -35,6 +35,7 @@ from qgis.core import (
 	QgsField,
 	QgsFeatureSink,
 	QgsUnitTypes,
+	QgsWkbTypes,
 	QgsPointXY,
 	QgsVectorLayer,
 	QgsProcessingParameterString,
@@ -62,7 +63,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
 		self.addParameter(QgsProcessingParameterVectorLayer("rivnet", self.tr("Réseau hydrographique (CRHQ)"), types=[QgsProcessing.TypeVectorLine],defaultValue=None,))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
-		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=200))
+		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=50))
 		self.addParameter(QgsProcessingParameterNumber('step_min', self.tr('Longueur minimale entre les transects (m)'), type=QgsProcessingParameterNumber.Double, defaultValue=10))
 		self.addParameter(QgsProcessingParameterRasterLayer("landuse", self.tr("Utilisation du territoire (MELCCFP)"), defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
@@ -142,15 +143,58 @@ class IndiceF3(QgsProcessingAlgorithm):
 			return {}
 
 		# Making obstacle layers into one
-		model_feedback.setProgressText(self.tr("Création de l'indice spatial des couches d'obstacles..."))
-		roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
-		landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
-		obstacle_indexes = []
-		for lyr in [roads_simpl, landuse_simpl]:
-			idx = QgsSpatialIndex()
-			for f in lyr.getFeatures():
-				idx.addFeature(f)
-			obstacle_indexes.append((lyr, idx))
+		# model_feedback.setProgressText(self.tr("Création de l'indice spatial des couches d'obstacles..."))
+		# roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
+		# landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
+		# obstacle_indexes = []
+		# for lyr in [roads_simpl, landuse_simpl]:
+		# 	idx = QgsSpatialIndex()
+		# 	for f in lyr.getFeatures():
+		# 		idx.addFeature(f)
+		# 	obstacle_indexes.append((lyr, idx))
+		model_feedback.setProgressText(self.tr("Fusion des couches d'obstacles..."))
+		try :
+			roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
+			landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
+			# Convert roads (LineString) to polygons via buffer
+			# Choose a realistic width in meters to represent the blocking right-of-way.
+			# E.g., 20 m (10 m on each side). Adjust according to your data context.
+			ROAD_BUFFER = 20
+			roads_poly = processing.run("native:buffer", {
+				"INPUT": roads_simpl,
+				"DISTANCE": ROAD_BUFFER / 2.0,   # half width from side to sides
+				"SEGMENTS": 5,
+				"END_CAP_STYLE": 1,              # Round=0, Flat=1, Square=2
+				"JOIN_STYLE": 0,
+				"MITER_LIMIT": 2,
+				"DISSOLVE": True,                # important for reducing the number of parts
+				"OUTPUT": "memory:"
+			}, context=context)["OUTPUT"]
+			# ----- (B) Dissolve the polygonized land cover (already in polygons) -----
+			landuse_diss = processing.run("native:dissolve", {
+				"INPUT": landuse_simpl,
+				"SEPARATE_DISJOINT": False,
+				"FIELD": [],
+				"OUTPUT": "memory:"
+			}, context=context)["OUTPUT"]
+			# ----- (C) Merge the two polygon layers (buffered roads + land use) -----
+			all_obstacles_poly = processing.run("native:mergevectorlayers", {
+				"LAYERS": [roads_poly, landuse_diss],
+				"OUTPUT": "memory:"
+			}, context=context)["OUTPUT"]
+			# ----- (D) Dissolve to obtain few features -----
+			obstacles_dissolved = processing.run("native:dissolve", {
+				"INPUT": all_obstacles_poly,
+				"SEPARATE_DISJOINT": False,
+				"FIELD": [],
+				"OUTPUT": "memory:"
+			}, context=context)["OUTPUT"]
+		except Exception as e :
+			model_feedback.reportError(self.tr(f"Erreur dans fusion des couches d'obstacles : {str(e)}"))
+			return {}
+
+		# Making spatial index of the obstacles
+		obstacle_indexes = QgsSpatialIndex(obstacles_dissolved.getFeatures())
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
@@ -168,7 +212,6 @@ class IndiceF3(QgsProcessingAlgorithm):
 					sid = segment[seg_id_field]
 					# Adjusting the number of steps based on segment length
 					if seg_len <= 0: # If segment length is lesser or equal to zero
-						#warnings.warn("always",self.tr(f"L'UEA dont le {seg_id_field} est {sid} est de longueur inférieure ou égale à zéro ! Indice F3 mis à 5"), UserWarning)
 						model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale zéro mètre ! Veuillez vérifier sa validité Indice F3 mis à 5."))
 						segment.setAttributes(segment.attributes() + [0.0, 5])
 						sink.addFeature(segment, QgsFeatureSink.FastInsert)
@@ -179,60 +222,60 @@ class IndiceF3(QgsProcessingAlgorithm):
 							model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
 						# Calculate an appropriate step for the transect points
 						step_m_local = max(step_min, seg_len / target_pts) # Makes bigger steps for long segments while keeping a set minimal resolution for smaller segments
-						if seg_len < step_m_local: # If segment length is smaller than the step we calculated
-							# We make a single point in the middle of the segment
-							pts = [seg_geom.interpolate(seg_len / 2.0).asPoint()]
-						else:
-							# Make the transect points for the segment
-							feature = rivnet_layer.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
-							points_local = processing.run('native:pointsalonglines', {
-								'INPUT': feature,
-								'DISTANCE': step_m_local,
-								'START_OFFSET': 0,
-								'END_OFFSET': 0,
-								'OUTPUT': 'memory:'
-							}, context=context)['OUTPUT']
-							pts = [f.geometry().asPoint() for f in points_local.getFeatures()]
+						# if seg_len < step_m_local: # If segment length is smaller than the step we calculated
+						# 	# We make a single point in the middle of the segment
+						# 	pts = [seg_geom.interpolate(seg_len / 2.0).asPoint()]
+						# else:
+						# 	# Make the transect points for the segment
+						# 	feature = rivnet_layer.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
+						# 	points_local = processing.run('native:pointsalonglines', {
+						# 		'INPUT': feature,
+						# 		'DISTANCE': step_m_local,
+						# 		'START_OFFSET': 0,
+						# 		'END_OFFSET': 0,
+						# 		'OUTPUT': 'memory:'
+						# 	}, context=context)['OUTPUT']
+						# 	pts = [f.geometry().asPoint() for f in points_local.getFeatures()]
+						# Get points along segment based on given step_m_local for the segment
+						pts = safe_points_along_line(seg_geom, step_m_local)
 					# 1) Max river width on the segment
 					ptref_idx_entry = ptref_indexes_by_seg.get(sid)
-					w_max = max_width_for_segment(ptref_idx_entry)  # 0.0 if no PtRef
+					w_max = max_width_for_segment(ptref_idx_entry)  # 2 m if no PtRef
 					# 2) Adaptative clip radius (max offset + L + margin)
 					R = (w_max / 2.0) + TRANSECT_LENGTH + MARGIN
-					# 3) Adaptive buffer and simplified dissolved riparian zone
+					# 3) Adaptive buffer and simplified dissolved obstacles
 					segment_buffer = seg_geom.buffer(R, 8)
-					# Intersect the geometry of the riparian zone polygon with the segment max width buffer collect the obstacles intersecting this BBOX
+					# Intersect the geometry of the obstacles polygon with the segment max width buffer collect the obstacles intersecting this BBOX
 					bbox = segment_buffer.boundingBox()
 					bbox_g = QgsRectangle(
 							bbox.xMinimum()-R, bbox.yMinimum()-R,
 							bbox.xMaximum()+R, bbox.yMaximum()+R
 					)
 					local_parts = []
-					for lyr, idx in obstacle_indexes:
-						candidate_ids = idx.intersects(bbox_g)
-						for fid in candidate_ids:
-							f = lyr.getFeature(fid)
-							g = f.geometry()
-							if g and not g.isEmpty():
-								# fast double check: bbox & intersects
-								if not g.boundingBox().intersects(bbox_g):
-									continue
-								if not g.intersects(segment_buffer):
-									continue
-								# Local clip (only useful portion)
-								c = g.intersection(segment_buffer)
-								if c and not c.isEmpty():
-									local_parts.append(c)
+					candidate_ids = obstacle_indexes.intersects(bbox_g)
+					for fid in candidate_ids:
+						f = obstacles_dissolved.getFeature(fid)
+						g = f.geometry()
+						if g and not g.isEmpty():
+							# fast double check: bbox & intersects
+							if not g.boundingBox().intersects(bbox_g):
+								continue
+							if not g.intersects(segment_buffer):
+								continue
+							# Local clip (only useful portion)
+							c = g.intersection(segment_buffer)
+							if c and not c.isEmpty():
+								local_parts.append(c)
 					union_geom = QgsGeometry.unaryUnion(local_parts)
 					# If no local obstacle -> all free
 					if not local_parts or not union_geom or union_geom.isEmpty():
-						#model_feedback.pushInfo(self.tr(f"Pas d'obstacle. Passe au procahin"))
 						perc15=1.0
 						indiceF3 = computeF3(perc15)
 						segment.setAttributes(segment.attributes() + [perc15*100, indiceF3])
 						sink.addFeature(segment, QgsFeatureSink.FastInsert)
 						model_feedback.setProgress(int(100 * (current) / max(1, total_features)))
 						continue
-					# Make bounding box of the clipped riparian zone polygon to verify if the transect intersects
+					# Make bounding box of the clipped obstacles polygon to verify if the transect intersects
 					engine_prepared, band_bbox = make_prepared_engine_and_bbox(union_geom)
 					# Verify if the obstacles union is empty (no obstacles around the segment)
 					if (engine_prepared is None):
@@ -243,25 +286,25 @@ class IndiceF3(QgsProcessingAlgorithm):
 						sink.addFeature(segment, QgsFeatureSink.FastInsert)
 						model_feedback.setProgress(int(100 * (current) / max(1, total_features)))
 						continue
-					# Counters of transect in intersection with the riparian zone
-					count_15 = 0   # Number of shores (left+right) that have a riparian zone >= 15 m
+					# Counters of transect in intersection with the obstacles
+					count_15 = 0   # Number of shores (left+right) that have an obstacles >= 15 m
 					n_pts = len(pts)
-					# Go over each transect points to calculate the intersection with the riparian zone
+					# Go over each transect points to calculate the intersection with obstacles
 					for center_pt in pts:
 						# 1) Angle of local tangent
 						theta = direction_angle_at_point_fast(seg_geom, center_pt)
 						# In case there's some weird geometries
 						if theta == 0.0:
 							theta = direction_angle_at_point(seg_geom, center_pt)
-						# 2) Start offset = channel width/2 if PtRef exists, else 0
+						# 2) Start offset = channel width/2 if PtRef exists, else 2 m (width)/2
 						# Get the PtRef points index for this segments
 						ptref_idx_entry = ptref_indexes_by_seg.get(sid)
 						w = nearest_width_value_indexed(center_pt, ptref_idx_entry)
-						offset = (float(w) / 2.0) if (w and w > 0) else 0.0
+						offset = (float(w) / 2.0) if (w and w > 0) else 2/2
 						# Transects left/right of length of TRANSECT_LENGTH 
 						left_line  = make_transect_line(center_pt, theta + math.pi/2.0, offset, TRANSECT_LENGTH)
 						right_line = make_transect_line(center_pt, theta - math.pi/2.0, offset, TRANSECT_LENGTH)
-						# Check the length of the transect intersection with riparian zone, if no riparian zone to intersect returns zero
+						# Check the length of the transect intersection with obstacles, if no obstacles to intersect returns zero
 						left_int_len  = fast_intersection_status(left_line, union_geom, engine_prepared, band_bbox)
 						right_int_len = fast_intersection_status(right_line, union_geom, engine_prepared, band_bbox)
 						# Tests if there is an obstacle within 15m in both sides, if its not the case we skip the count of the transect
@@ -288,7 +331,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 					else:
 						progress = 0
 					model_feedback.setProgress(progress)
-					#model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
+
 		except Exception as e :
 			model_feedback.reportError(self.tr(f"Erreur dans la boucle de segments : {str(e)}"))
 			return {}
@@ -317,7 +360,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F3 afin d'évaluer la capacité d'érosion du cours d'eau en évaluant la continuité de l'espace de mobilité sur l'ensemble du segment.\n L'outil calcul donc la continuité amont-aval en prenant compte de la somme des distances longitudinales dénuées de discontinuités de part et d'autre du chenal en fonction de la distance totale du segment. La continuité longitudinale de l'espace de mobilité s'exprime par la distance longitudinale relative (%). Les discontinuités utilisées par l'outil sont les infrastructures de transport (routes, voies ferrées) ainsi que les ponts et ponceaux présents à l'intérieur de l'espace de mobilité d'une largeur de 15 m. Dans le cas d'un cours d'eau anabranche ou divagant, la continuité longitudinale est évaluée en calculant la somme des distances sans discontinuités pour chaque chenal en fonction de la distance totale de tous les chenaux.\n" \
+			"Calcule de l'indice F3 afin d'évaluer la capacité d'érosion du cours d'eau en évaluant la continuité de l'espace de mobilité sur l'ensemble du segment.\n L'outil calcul donc la continuité amont-aval en prenant compte de la somme des distances longitudinales dénuées de discontinuités de part et d'autre du chenal en fonction de la distance totale du segment. La continuité longitudinale de l'espace de mobilité s'exprime par la distance longitudinale relative (%). Les discontinuités utilisées par l'outil sont les infrastructures de transport (routes, voies ferrées) ainsi que les ponts et ponceaux présents à l'intérieur de l'espace de mobilité d'une largeur de 15 m.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Réseau routier : Vectoriel (lignes)\n" \
@@ -330,7 +373,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
 			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
-			" Nbr de points visés : nombre entier (int; 200 par défaut)\n" \
+			" Nbr de points visés : nombre entier (int; 50 par défaut)\n" \
 			"-> Nombre de points de transects visés par segment. Permet de meilleures performances pour réduire le nombre de transects pour les longs segments. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
 			" Longueur min entre transects (m) : double (10 m par défaut)\n" \
 			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre des points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
@@ -444,13 +487,65 @@ def simplify_layer_once(layer, tol=2.0):
 	return simplified
 
 
+def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:
+	"""
+	Robustly sample points along a (multi)line geometry every step_m meters.
+	- Clamps interpolation distances to [0, length - eps] to avoid null geometries.
+	- Skips empty/invalid interp results defensively.
+	- Falls back to a single midpoint when the segment is shorter than the step.
+	"""
+	pts = []
+	if seg_geom is None or seg_geom.isEmpty():
+		return pts
+	seg_len = seg_geom.length()
+	if not np.isfinite(seg_len) or seg_len <= 0.0:
+		return pts
+	# Tiny epsilon to stay strictly inside [0, length)
+	eps = max(1e-6, min(0.001, 1e-3 * seg_len))
+	def _interp_point_at(dist_m: float):
+		"""Interpolate and safely convert to QgsPointXY if a point geometry is returned."""
+		g = seg_geom.interpolate(dist_m)
+		if not g or g.isEmpty() or g.type() != QgsWkbTypes.PointGeometry:
+			return None
+		# Handle Point vs MultiPoint
+		try:
+			p = g.asPoint()
+		except Exception:
+			mp = g.asMultiPoint()
+			if not mp:
+				return None
+			p = mp[0]
+		return QgsPointXY(p.x(), p.y())
+	# If the line is shorter than the step -> single midpoint (clamped)
+	if seg_len < step_m:
+		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
+		p = _interp_point_at(mid)
+		return [p] if p is not None else []
+	# Regular sampling
+	d = 0.0
+	while d < seg_len:
+		# Clamp d to [0, seg_len - eps] to avoid "null geometry" from interpolate()
+		dd = min(seg_len - eps, max(0.0, d))
+		p = _interp_point_at(dd)
+		if p is not None:
+			pts.append(p)
+		d += step_m
+	# Safety: if nothing has been collected (rare degenerate cases), try the midpoint
+	if not pts:
+		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
+		p = _interp_point_at(mid)
+		if p is not None:
+			pts.append(p)
+	return pts
+
+
 def max_width_for_segment(ptref_idx_entry) -> float:
 	"""
 	Returns the maximum width (Largeur_mod) on the PtRef of the segment.
 	ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], width_field: 'Largeur_mod'}
 	"""
 	if not ptref_idx_entry:
-		return 0.0
+		return 2
 	feats = ptref_idx_entry.get('features', [])
 	width_field = ptref_idx_entry.get('width_field', 'Largeur_mod')
 	wmax = 0.0
