@@ -43,7 +43,7 @@ from qgis.core import (
 	QgsSpatialIndex,
 	QgsGeometry,
 	QgsRectangle,
-	QgsFeatureRequest,
+	QgsProperty,
 	QgsProcessingUtils,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterVectorLayer,
@@ -84,6 +84,10 @@ class IndiceF3(QgsProcessingAlgorithm):
 		# Verify that the given width attribute is in the PtRef layer
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
+		# Verify that the road layer passed through the preprocessing script
+		if "demi_emp" not in [f.name() for f in roads_layer.fields()]:
+			return False, self.tr("Le champ 'demi_emp' est absent de la couche du réseau routier! Veuillez vous assurer que la couche de réseau routier à préalablement passé par le script Extraction routes d'OSM (IQM utils).")
+		# Verify given layers are in meters
 		if not is_metric_crs(rivnet_layer.crs()) :
 			return False, self.tr(f"La couche de réseau hydro n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		if not is_metric_crs(ptref_layer.crs()) :
@@ -142,16 +146,6 @@ class IndiceF3(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
-		# Making obstacle layers into one
-		# model_feedback.setProgressText(self.tr("Création de l'indice spatial des couches d'obstacles..."))
-		# roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
-		# landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
-		# obstacle_indexes = []
-		# for lyr in [roads_simpl, landuse_simpl]:
-		# 	idx = QgsSpatialIndex()
-		# 	for f in lyr.getFeatures():
-		# 		idx.addFeature(f)
-		# 	obstacle_indexes.append((lyr, idx))
 		model_feedback.setProgressText(self.tr("Fusion des couches d'obstacles..."))
 		try :
 			roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
@@ -159,10 +153,9 @@ class IndiceF3(QgsProcessingAlgorithm):
 			# Convert roads (LineString) to polygons via buffer
 			# Choose a realistic width in meters to represent the blocking right-of-way.
 			# E.g., 20 m (10 m on each side). Adjust according to your data context.
-			ROAD_BUFFER = 20
 			roads_poly = processing.run("native:buffer", {
 				"INPUT": roads_simpl,
-				"DISTANCE": ROAD_BUFFER / 2.0,   # half width from side to sides
+				"DISTANCE": QgsProperty.fromField("demi_emp"),   # half width from side to sides
 				"SEGMENTS": 5,
 				"END_CAP_STYLE": 1,              # Round=0, Flat=1, Square=2
 				"JOIN_STYLE": 0,
@@ -222,20 +215,6 @@ class IndiceF3(QgsProcessingAlgorithm):
 							model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
 						# Calculate an appropriate step for the transect points
 						step_m_local = max(step_min, seg_len / target_pts) # Makes bigger steps for long segments while keeping a set minimal resolution for smaller segments
-						# if seg_len < step_m_local: # If segment length is smaller than the step we calculated
-						# 	# We make a single point in the middle of the segment
-						# 	pts = [seg_geom.interpolate(seg_len / 2.0).asPoint()]
-						# else:
-						# 	# Make the transect points for the segment
-						# 	feature = rivnet_layer.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
-						# 	points_local = processing.run('native:pointsalonglines', {
-						# 		'INPUT': feature,
-						# 		'DISTANCE': step_m_local,
-						# 		'START_OFFSET': 0,
-						# 		'END_OFFSET': 0,
-						# 		'OUTPUT': 'memory:'
-						# 	}, context=context)['OUTPUT']
-						# 	pts = [f.geometry().asPoint() for f in points_local.getFeatures()]
 						# Get points along segment based on given step_m_local for the segment
 						pts = safe_points_along_line(seg_geom, step_m_local)
 					# 1) Max river width on the segment

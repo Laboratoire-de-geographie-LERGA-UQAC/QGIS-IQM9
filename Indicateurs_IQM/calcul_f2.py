@@ -35,6 +35,7 @@ from qgis.core import (
 	QgsRectangle,
 	QgsGeometry,
 	QgsPointXY,
+	QgsProperty,
 	QgsWkbTypes,
 	QgsField,
 	QgsUnitTypes,
@@ -82,6 +83,9 @@ class IndiceF2(QgsProcessingAlgorithm):
 		# Verify that the given width attribute is in the PtRef layer
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
+		# Verify that the road layer passed through the preprocessing script
+		if "demi_emp" not in [f.name() for f in roads_layer.fields()]:
+			return False, self.tr("Le champ 'demi_emp' est absent de la couche du réseau routier! Veuillez vous assurer que la couche de réseau routier à préalablement passé par le script Extraction routes d'OSM (IQM utils).")
 		if not is_metric_crs(rivnet_layer.crs()) :
 			return False, self.tr(f"La couche de réseau hydro n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		if not is_metric_crs(ptref_layer.crs()) :
@@ -141,10 +145,9 @@ class IndiceF2(QgsProcessingAlgorithm):
 			# ----- (A) Convert roads (LineString) to polygons via buffer -----
 			# Choose a realistic width in meters to represent the blocking right-of-way.
 			# E.g., 20 m (10 m on each side). Adjust according to your data context.
-			ROAD_BUFFER = 20
 			roads_poly = processing.run("native:buffer", {
 				"INPUT": roads_simpl,
-				"DISTANCE": ROAD_BUFFER / 2.0,   # half width from side to sides
+				"DISTANCE": QgsProperty.fromField("demi_emp"),   # half width from side to sides
 				"SEGMENTS": 5,
 				"END_CAP_STYLE": 1,              # Round=0, Flat=1, Square=2
 				"JOIN_STYLE": 0,
@@ -201,11 +204,6 @@ class IndiceF2(QgsProcessingAlgorithm):
 			seg_geom = segment.geometry()
 			sid = segment[seg_id_field]
 			seg_len = seg_geom.length()
-			# # Get mean width of the segment
-			# ptref_idx_entry = ptref_indexes_by_seg.get(sid)
-			# # Mean width of the segment otherwise the max (5 m)
-			# w_values = [float(pf[width_field]) for pf in (ptref_idx_entry.get('features', []) if ptref_idx_entry else []) if pf[width_field] is not None]
-			# segment_mean_width = max(5.0, np.mean(w_values)) if w_values else 10
 			# Verify length of segment
 			if seg_len <= 2 :
 				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
