@@ -86,6 +86,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 			return False, self.tr(f"Le champ Largeur_mod est absent de la couche PtRef largeur! Veuillez vous assurer que la couche de points de références à préalablement passé par le script UEA_PtRef_join")
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
+		# Verify that the road layer passed through the preprocessing script
+		if "demi_emp" not in [f.name() for f in road_layer.fields()]:
+			return False, self.tr("Le champ 'demi_emp' est absent de la couche du réseau routier! Veuillez vous assurer que la couche de réseau routier à préalablement passé par le script Extraction routes d'OSM (IQM utils).")
 		# Verify that seg_id_field is in the two lyrs (stream_network and PtRef)
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()] :
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
@@ -273,7 +276,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF1']['OUTPUT'],
 				'segment_id_field': seg_id_field, # default : Id_UEA
-				'target_pts': 200, # default : 200
+				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
@@ -296,7 +299,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF2']['OUTPUT'],
 				'segment_id_field': seg_id_field, # default : Id_UEA
-				'target_pts': 200, # default : 200
+				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
