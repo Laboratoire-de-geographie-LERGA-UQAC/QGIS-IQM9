@@ -35,7 +35,7 @@ from qgis.core import (
 	QgsPointXY,
 	QgsGeometry,
 	QgsRectangle,
-	QgsFeatureRequest,
+	QgsWkbTypes,
 	QgsSpatialIndex,
 	QgsUnitTypes,
 	QgsProcessingAlgorithm,
@@ -58,7 +58,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
 		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
-		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=200))
+		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=50))
 		self.addParameter(QgsProcessingParameterNumber('step_min', self.tr('Longueur minimale entre les transects (m)'), type=QgsProcessingParameterNumber.Double, defaultValue=10))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
@@ -130,7 +130,6 @@ class IndiceF4(QgsProcessingAlgorithm):
 			sid = segment[seg_id_field]
 			# Adjusting the number of steps based on segment length
 			if seg_len <= 0: # If segment length is lesser or equal to zero
-				#warnings.warn("always",self.tr(f"L'UEA dont le {seg_id_field} est {sid} est de longueur inférieure ou égale à zéro ! Indice F5 mis à 4"), UserWarning)
 				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale zéro mètre ! Veuillez vérifier sa validité Indice F4 mis à 3."))
 				segment.setAttributes(segment.attributes() + [0.0, 3])
 				sink.addFeature(segment, QgsFeatureSink.FastInsert)
@@ -141,22 +140,10 @@ class IndiceF4(QgsProcessingAlgorithm):
 					model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
 				# Calculate an appropriate step for the transect points
 				step_m_local = max(step_min, seg_len / target_pts) # Makes bigger steps for long segments while keeping a set minimal resolution for smaller segments
-				if seg_len < step_m_local: # If segment length is smaller than the step we calculated
-					# We make a single point in the middle of the segment
-					pts = [seg_geom.interpolate(seg_len / 2.0).asPoint()]
-				else:
-					# Make the transect points for the segment
-					feature = rivnet_layer.materialize(QgsFeatureRequest().setFilterFids([segment.id()]))
-					points_local = processing.run('native:pointsalonglines', {
-						'INPUT': feature,
-						'DISTANCE': step_m_local,
-						'START_OFFSET': 0,
-						'END_OFFSET': 0,
-						'OUTPUT': 'memory:'
-					}, context=context)['OUTPUT']
-					pts = [f.geometry().asPoint() for f in points_local.getFeatures()]
-			ptref_idx_entry = ptref_indexes_by_seg.get(sid)
+				# Get points along segment based on given step_m_local for the segment
+				pts = safe_points_along_line(seg_geom, step_m_local)
 			# Finding the nearest PtRef width
+			ptref_idx_entry = ptref_indexes_by_seg.get(sid)
 			if not ptref_idx_entry :
 				widths = [0]
 			else :
@@ -180,7 +167,6 @@ class IndiceF4(QgsProcessingAlgorithm):
 			else:
 				progress = 0
 			model_feedback.setProgress(progress)
-			#model_feedback.setProgressText(self.tr(f"Traitement de {current} segments sur {total_features}"))
 
 		# Ending message
 		model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
@@ -219,10 +205,10 @@ class IndiceF4(QgsProcessingAlgorithm):
 			"Retourne\n" \
 			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
-			" Nbr de points visés : nombre entier (int; 200 par défaut)\n" \
+			" Nbr de points visés : nombre entier (int; 50 par défaut)\n" \
 			"-> Nombre de points de transects visés par segment. Permet de meilleures performances pour réduire le nombre de transects pour les longs segments. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
 			" Longueur min entre transects (m) : double (10 m par défaut)\n" \
-			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre des points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
+			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre de points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique du bassin versant avec le score de l'indice F4 calculé pour chaque UEA."
@@ -251,6 +237,59 @@ def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str
 			idx.addFeature(f)
 		seg_to_index[sid] = {'index': idx, 'features': feats, 'width_field': width_field}
 	return seg_to_index
+
+
+def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:
+	"""
+	Robustly sample points along a (multi)line geometry every step_m meters.
+	- Clamps interpolation distances to [0, length - eps] to avoid null geometries.
+	- Skips empty/invalid interp results defensively.
+	- Falls back to a single midpoint when the segment is shorter than the step.
+	"""
+	pts = []
+	if seg_geom is None or seg_geom.isEmpty():
+		return pts
+	seg_len = seg_geom.length()
+	if not np.isfinite(seg_len) or seg_len <= 0.0:
+		return pts
+	# Tiny epsilon to stay strictly inside [0, length)
+	eps = max(1e-6, min(0.001, 1e-3 * seg_len))
+	def _interp_point_at(dist_m: float):
+		"""Interpolate and safely convert to QgsPointXY if a point geometry is returned."""
+		g = seg_geom.interpolate(dist_m)
+		if not g or g.isEmpty() or g.type() != QgsWkbTypes.PointGeometry:
+			return None
+		# Handle Point vs MultiPoint
+		try:
+			p = g.asPoint()
+		except Exception:
+			mp = g.asMultiPoint()
+			if not mp:
+				return None
+			p = mp[0]
+		return QgsPointXY(p.x(), p.y())
+	# If the line is shorter than the step -> single midpoint (clamped)
+	if seg_len < step_m:
+		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
+		p = _interp_point_at(mid)
+		return [p] if p is not None else []
+	# Regular sampling
+	d = 0.0
+	while d < seg_len:
+		# Clamp d to [0, seg_len - eps] to avoid "null geometry" from interpolate()
+		dd = min(seg_len - eps, max(0.0, d))
+		p = _interp_point_at(dd)
+		if p is not None:
+			pts.append(p)
+		d += step_m
+	# Safety: if nothing has been collected (rare degenerate cases), try the midpoint
+	if not pts:
+		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
+		p = _interp_point_at(mid)
+		if p is not None:
+			pts.append(p)
+
+	return pts
 
 
 def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> float or None:
