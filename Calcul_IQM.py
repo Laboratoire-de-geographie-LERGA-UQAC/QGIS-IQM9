@@ -37,6 +37,7 @@ from qgis.core import (
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterRasterLayer,
 	QgsProcessingParameterString,
+	QgsProcessingParameterBoolean,
 	QgsProcessingParameterFeatureSink
 )
 
@@ -56,6 +57,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterBoolean('use_agri', self.tr('Utiliser milieux agricoles (pour F2 et F3)?'), defaultValue=True, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 
@@ -279,6 +281,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
+				'use_agri': parameters['use_agri'], # default : True
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceF2'] = processing.run('script:indicef2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -302,6 +305,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'landuse': parameters['landuse'],
+				'use_agri': parameters['use_agri'], # default : True
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceF3'] = processing.run('script:indicef3', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -322,7 +326,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF3']['OUTPUT'],
 				'segment_id_field': seg_id_field, # default : Id_UEA
-				'target_pts': 200, # default : 200
+				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
@@ -344,7 +348,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF4']['OUTPUT'],
 				'segment_id_field': seg_id_field, # default : Id_UEA
-				'target_pts': 200, # default : 200
+				'target_pts': 50, # default : 50
 				'step_min': 10, # default : 10m
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
@@ -367,7 +371,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'FIELD_LENGTH': 2,
 				'FIELD_NAME': 'Score IQM9',
 				'FIELD_PRECISION': 2,
-				'FIELD_TYPE': 0,  # Décimal (double)
+				'FIELD_TYPE': 0,  # Decimal (double)
 				'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 40', # for each river segment : IQM = 1 - (total score/max score)
 				'INPUT': outputs['IndiceF5']['OUTPUT'],
 				'OUTPUT': parameters['Iqm']
@@ -425,6 +429,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel). Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
 			"Utilisation du territoire : Matriciel\n" \
 			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"Utiliser milieux agricoles : Booléen (optionnel; valeur par défaut : Vrai) \n" \
+			"-> Détermine si l'algorithme doit considérer les milieux agricoles comme obstacles supplémentaires dans la plaine alluviale (pour calcul de F2 et F3) pour la reclassification des classes d'utilisation du territoire.\n" \
+			"Retourne\n" \
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \

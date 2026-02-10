@@ -40,6 +40,7 @@ from qgis.core import (
 	QgsVectorLayer,
 	QgsProcessingParameterString,
 	QgsProcessingParameterRasterLayer,
+	QgsProcessingParameterBoolean,
 	QgsSpatialIndex,
 	QgsGeometry,
 	QgsRectangle,
@@ -66,6 +67,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=50))
 		self.addParameter(QgsProcessingParameterNumber('step_min', self.tr('Longueur minimale entre les transects (m)'), type=QgsProcessingParameterNumber.Double, defaultValue=10))
 		self.addParameter(QgsProcessingParameterRasterLayer("landuse", self.tr("Utilisation du territoire (MELCCFP)"), defaultValue=None))
+		self.addParameter(QgsProcessingParameterBoolean('use_agri', self.tr('Utiliser milieux agricoles ?'), defaultValue=True, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 
@@ -109,6 +111,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 		target_pts = int(self.parameterAsDouble(parameters, 'target_pts', context))
 		step_min = float(self.parameterAsDouble(parameters, 'step_min', context))
+		use_agri = self.parameterAsBool(parameters, 'use_agri', context)
 		# Length of the transects and margin to use
 		TRANSECT_LENGTH = 16
 		MARGIN = 2.0
@@ -139,7 +142,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		# Reclassify landUse
 		model_feedback.setProgressText(self.tr("Polygonisation et reclassification de l'utilisation du territoire..."))
 		try :
-			vectorised_landuse = polygonize_landuse(parameters, context, feedback=None)
+			vectorised_landuse = polygonize_landuse(use_agri, parameters, context, feedback=model_feedback)
 		except Exception as e :
 			model_feedback.reportError(self.tr(f"Erreur dans polygonize_landuse : {str(e)}"))
 			return {}
@@ -339,7 +342,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F3 afin d'évaluer la capacité d'érosion du cours d'eau en évaluant la continuité de l'espace de mobilité sur l'ensemble du segment.\n L'outil calcul donc la continuité amont-aval en prenant compte de la somme des distances longitudinales dénuées de discontinuités de part et d'autre du chenal en fonction de la distance totale du segment. La continuité longitudinale de l'espace de mobilité s'exprime par la distance longitudinale relative (%). Les discontinuités utilisées par l'outil sont les infrastructures de transport (routes, voies ferrées) ainsi que les ponts et ponceaux présents à l'intérieur de l'espace de mobilité d'une largeur de 15 m.\n" \
+			"Calcule de l'indice F3 afin d'évaluer la capacité d'érosion du cours d'eau en évaluant la continuité de l'espace de mobilité sur l'ensemble du segment.\n L'outil calcul donc la continuité amont-aval en prenant compte de la somme des distances longitudinales dénuées de discontinuités de part et d'autre du chenal en fonction de la distance totale du segment. La continuité longitudinale de l'espace de mobilité s'exprime par la distance longitudinale relative (%). Les discontinuités utilisées par l'outil sont les infrastructures de transport (routes, voies ferrées) ainsi que les milieux anthropiques et agricoles (optionnel) présents à l'intérieur de l'espace de mobilité d'une largeur de 15 m.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Réseau routier : Vectoriel (lignes)\n" \
@@ -357,7 +360,9 @@ class IndiceF3(QgsProcessingAlgorithm):
 			" Longueur min entre transects (m) : double (10 m par défaut)\n" \
 			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre des points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
 			"Utilisation du territoire : Matriciel\n" \
-			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes anthropique et agricole (optionnel), selon le guide d'utilisation du jeu de données. Source des données : MELCCFP. Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"Utiliser milieux agricoles : Booléen (optionnel; valeur par défaut : Vrai) \n" \
+			"-> Détermine si l'algorithme doit considérer les milieux agricoles comme obstacles supplémentaires dans la plaine alluviale pour la reclassification des classes d'utilisation du territoire.\n" \
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
@@ -389,7 +394,7 @@ def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str
 	return seg_to_index
 
 
-def polygonize_landuse(parameters, context, feedback):
+def polygonize_landuse(use_agri, parameters, context, feedback):
 	# River network buffer
 	alg_params = {
 		'INPUT' : parameters['rivnet'],
@@ -401,7 +406,7 @@ def polygonize_landuse(parameters, context, feedback):
 		'DISSOLVE' : True,
 		'OUTPUT' : 'TEMPORARY_OUTPUT'
 	}
-	buffer = processing.run("native:buffer", alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+	buffer = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 	# Clip raster by mask
 	alg_params = {
 		'INPUT' : parameters['landuse'],
@@ -422,14 +427,20 @@ def polygonize_landuse(parameters, context, feedback):
 		'EXTRA' : '',
 		'OUTPUT' : 'TEMPORARY_OUTPUT'
 	}
-	clip = processing.run("gdal:cliprasterbymasklayer", alg_params, context=context, feedback=feedback)['OUTPUT']
-	# Reclassify land use. Keep agriculture and anthropised and drop other landuse classes.
-	CLASSES = ['101', '198', '1', #Agriculture from 101 to 198 are replaced by 1.
-        '300', '360', '1' # Anthropised from 300 to 360 are replaced by 1.
-    ]
+	clip = processing.run("gdal:cliprasterbymasklayer", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+	# Reclassify land use. Keep agricultural (optional) and anthropised land and drop other landuse classes.
+	if use_agri == True :
+		feedback.pushInfo("Utilisation des classes de milieux anthropiques et agricoles")
+		CLASSES = ['101', '198', '1', #Agriculture from 101 to 198 are replaced by 1.
+				'300', '360', '1' # Anthropised from 300 to 360 are replaced by 1.
+		]
+	else :
+		feedback.pushInfo("Utilisation des classes de milieux anthropiques seulement")
+		CLASSES = ['300', '360', '1' # Anthropised from 300 to 360 are replaced by 1.
+		]
 	alg_params = {
 		'DATA_TYPE' : 0,  # Byte
-		'INPUT_RASTER' : clip ,#parameters['landuse'],
+		'INPUT_RASTER' : clip ,
 		'NODATA_FOR_MISSING' : True,
 		'NO_DATA' : 0,
 		'RANGE_BOUNDARIES' : 2,  # min <= value <= max
@@ -437,7 +448,7 @@ def polygonize_landuse(parameters, context, feedback):
 		'TABLE' : CLASSES,
 		'OUTPUT' : QgsProcessingUtils.generateTempFilename("reclass_landuse.tif")
 	}
-	reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+	reclass = processing.run('native:reclassifybytable', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 	# Polygonize the reclassification
 	poly_path = QgsProcessingUtils.generateTempFilename("vector_landuse.gpkg") # higher performance with gpkg than shp
 	alg_params = {
@@ -448,7 +459,7 @@ def polygonize_landuse(parameters, context, feedback):
 		'INPUT' : reclass,
 		'OUTPUT' : poly_path
 	}
-	processing.run('gdal:polygonize', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+	processing.run('gdal:polygonize', alg_params, context=context, feedback=None, is_child_algorithm=True)
 	# Making the layer
 	poly_layer = QgsVectorLayer(poly_path, "landuse", "ogr")
 	if not poly_layer.isValid():
