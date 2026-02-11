@@ -1,18 +1,32 @@
 """
-***************************************************************************
-*																		 *
-*   This program is free software; you can redistribute it and/or modify  *
-*   it under the terms of the GNU General Public License as published by  *
-*   the Free Software Foundation; either version 2 of the License, or	 *
-*   (at your option) any later version.								   *
-*																		 *
-***************************************************************************
+*********************************************************************************
+*																				*
+*		QGIS-IQM9 is a program developed for QGIS as a tool to automatically	*
+*	calculate the Morphological Quality Index (MQI) of river systems			*
+*	Copyright (C) 2025 Laboratoire d'expertise et de recherche en géographie	*
+*	appliquée (LERGA) de l'Université du Québec à Chicoutimi (UQAC)				*
+*																				*
+*	This program is free software: you can redistribute it and/or modify		*
+*	it under the terms of the GNU Affero General Public License as published	*
+*	by the Free Software Foundation, either version 3 of the License, or		*
+*	(at your option) any later version.											*
+*																				*
+*	This program is distributed in the hope that it will be useful,				*
+*	but WITHOUT ANY WARRANTY; without even the implied warranty of				*
+*	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				*
+*	GNU Affero General Public License for more details.							*
+*																				*
+*	You should have received a copy of the GNU Affero General Public License	*
+*	along with this program.  If not, see <https://www.gnu.org/licenses/>.		*
+*																				*
+*********************************************************************************
 """
 
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
 	QgsProcessing,
 	QgsProcessingUtils,
+	QgsUnitTypes,
 	QgsVectorLayer,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterEnum,
@@ -30,9 +44,16 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer(self.LINES, self.tr('lines (du fichier map.osm de OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('watershed_area', self.tr('Superficie du BV'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None))
-		self.addParameter(QgsProcessingParameterEnum('road_type', self.tr('Type de route à extraire'), options=[self.tr('Tout'),'motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
-		self.addParameter(QgsProcessingParameterEnum('railway_type', self.tr('Type de chemin de fer à extraire'), options=[self.tr('Tout'),'disused','funicular','light_rail','narrow_gauge','rail','tram'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
+		self.addParameter(QgsProcessingParameterEnum('road_type', self.tr('Type de route à extraire'), options=[self.tr('Tout'), 'cycleway', 'motorway','motorway_link','primary','primary_link','secondary','secondary_link','tertiary','tertiary_link','unclassified','trunk','trunk_link','residential'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
+		self.addParameter(QgsProcessingParameterEnum('railway_type', self.tr('Type de chemin de fer à extraire'), options=[self.tr('Tout'),'disused','light_rail','narrow_gauge','rail','tram'], defaultValue='Tout', allowMultiple=True, usesStaticStrings=True, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink('OUTPUT', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=False, defaultValue=None))
+
+
+	def checkParameterValues(self, parameters, context):
+		# Make sure that the project set projection is in metric
+		if not is_metric_crs(QgsProject.instance().crs()) :
+			return False, self.tr(f"Le projet n'est pas dans un CRS en mètres! Veuillez utiliser un CRS approprié.")
+		return True, ''
 
 
 	def processAlgorithm(self, parameters, context, feedback):
@@ -47,7 +68,7 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 			expression_road = "(\"highway\" IN ({}))".format(", ".join([f"'{t}'" for t in selected_road_type]))
 
 		if self.tr("Tout") in selected_rail_type :
-			expression_rail = "(\"railway\" IN ('disused','funicular','light_rail','narrow_gauge','rail','tram'))"
+			expression_rail = "(\"railway\" IN ('disused','light_rail','narrow_gauge','rail','tram'))"
 		else :
 			expression_rail = "(\"railway\" IN ({}))".format(", ".join([f"'{t}'" for t in selected_rail_type]))
 
@@ -70,7 +91,7 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 				reproj_lyr = processing.run('native:reprojectlayer', alg_params,context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 				OSM_lines = make_layer(reproj_lyr, context, "reproj_layer")
 			except Exception as e :
-				feedback.reportError(f"Erreur lors de la reprojection de la couche de lignes OSM : {str(e)}")
+				feedback.reportError(self.tr(f"Erreur lors de la reprojection de la couche de lignes OSM : {str(e)}"))
 				return {}
 
 		# Selecting the lines that are roads or train tracks
@@ -82,7 +103,7 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 		try :
 			processing.run("qgis:selectbyexpression", alg_params, context=context, feedback=None, is_child_algorithm=True)
 		except Exception as e :
-			feedback.reportError(f"Erreur lors du traitement : {str(e)}")
+			feedback.reportError(f"Erreur lors de la sélection par expression : {str(e)}")
 			return {}
 
 		feedback.setProgressText(self.tr(f"{OSM_lines.selectedFeatureCount()} routes sélectionnées depuis le fichier d'OpenStreetMap"))
@@ -101,7 +122,7 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 		try :
 			processing.run("qgis:selectbylocation", alg_params, context=context, feedback=None, is_child_algorithm=True)
 		except Exception as e :
-			feedback.reportError(f"Erreur lors du traitement : {str(e)}")
+			feedback.reportError(self.tr(f"Erreur lors de la sélection par localisation : {str(e)}"))
 			return {}
 
 		feedback.setProgressText(self.tr(f"{OSM_lines.selectedFeatureCount()} routes dans le BV à partir des routes sélectionnées"))
@@ -113,26 +134,77 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 		# Extract the selection into a new layer
 		alg_params = {
 			'INPUT': OSM_lines,
-			'OUTPUT': parameters['OUTPUT']
+			'OUTPUT': 'memory:'
 		}
 		try :
 			extracted_roads = processing.run("native:saveselectedfeatures", alg_params, context=context, feedback=None, is_child_algorithm=True)
 		except Exception as e :
-			feedback.reportError(f"Erreur lors du traitement : {str(e)}")
+			feedback.reportError(self.tr(f"Erreur lors du traitement : {str(e)}"))
+			return {}
+
+		# Adding the half width (m) of roads, railways and bike paths (to adjust to your situation)
+		feedback.setProgressText(self.tr("Ajout de la demi emprise du réseau routier, ferroviaire et cyclable..."))
+		demi_rail = { # Based on data found in Transport Canada. (2014, 12 mars). Norme relative aux gabarits ferroviaires.
+			'rail': 5.486,
+			'light_rail': 5.486,
+			'tram': 5.486,
+			'narrow_gauge': 5.486, # Note : there is no narrow gauge (space between rail <= 1m) used in Canada (1435mm gauge is used), but we leave it here as an option for other users
+			'disused': 5.486
+		}
+		demi_road = { # Based on data found in ministère des Transports du Québec. (2012, 15 juin). Tome I - Conception routière (13e éd.). Les Publications du Québec.
+			'motorway': 22.5, 'motorway_link': 4,
+			'trunk': 21.25, 'trunk_link' : 2.5,
+			'primary': 21.25, 'primary_link': 2.5,
+			'secondary': 17.5, 'secondary_link': 2.5,
+			'tertiary': 15, 'tertiary_link': 2.5,
+			'unclassified': 12.5,
+			'residential': 10,
+			'cycleway': 1.5
+			# motif *_link handled separetaly
+		}
+
+		def case_when_from_map(field, mp):
+			parts = [f'WHEN "{field}" = \'{k}\' THEN {v}' for k, v in mp.items()]
+			return " \n".join(parts)
+
+		demi_emp_expr = f"""
+		CASE
+			{case_when_from_map('railway', demi_rail)}
+			{case_when_from_map('highway', demi_road)}
+			ELSE 10
+		END
+		"""
+
+		try:
+			fc_params = {
+				'INPUT': extracted_roads['OUTPUT'],
+				'FIELD_NAME': 'demi_emp',
+				'FIELD_TYPE': 0,        # Decimal/double
+				'FIELD_LENGTH': 10,
+				'FIELD_PRECISION': 3,
+				'FORMULA': demi_emp_expr,
+				'OUTPUT': parameters['OUTPUT']
+			}
+			width_field = processing.run(
+				"qgis:fieldcalculator", fc_params,
+				context=context, feedback=None, is_child_algorithm=True
+			)['OUTPUT']
+		except Exception as e:
+			feedback.reportError(self.tr(f"Erreur lors de l'ajout de la demi-emprise : {str(e)}"))
 			return {}
 
 		# Remove the selection in the source layer
 		try :
 			OSM_lines.removeSelection()
 		except Exception as e :
-			feedback.reportError(f"Impossible de désélectionner les entités : {str(e)}")
+			feedback.reportError(self.tr(f"Impossible de désélectionner les entités : {str(e)}"))
 
 		feedback.setProgressText(self.tr("Fin de l'extraction des routes du BV"))
 
 		if feedback.isCanceled():
 			return {}
 
-		return {'OUTPUT': extracted_roads['OUTPUT']}
+		return {'OUTPUT': width_field}
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)
@@ -151,7 +223,7 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Extrait le réseau routier et chemin de fer à partir des données d'OpenStreetMap\n" \
+			"Extrait le réseau routier et chemin de fer à partir des données d'OpenStreetMap et ajoute les largeurs d'emprise de celles-ci\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"lines : Vectoriel (lignes)\n" \
@@ -170,6 +242,11 @@ class Extract_OSM_roads(QgsProcessingAlgorithm):
 
 	def createInstance(self):
 		return Extract_OSM_roads()
+
+
+def is_metric_crs(crs):
+	# True if the distance unit of the CRS is the meter
+	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
 
 
 def make_layer(obj, context, name='layer'):
