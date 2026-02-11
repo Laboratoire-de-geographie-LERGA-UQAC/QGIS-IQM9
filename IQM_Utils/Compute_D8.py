@@ -24,7 +24,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 	def processAlgorithm(self, parameters, context, model_feedback):
 		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
 		# overall progress through the model
-		feedback = QgsProcessingMultiStepFeedback(4, model_feedback)
+		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 		outputs = {}
 
 		# To output the resulting raster
@@ -42,25 +42,9 @@ class Compute_d8(QgsProcessingAlgorithm):
 		if feedback.isCanceled():
 			return {}
 
-		# BreachDepressionsLeastCost
-		alg_params = {
-			'dem': outputs['Fillburn']['output'],
-			'dist': 5,
-			'fill': False,
-			'flat_increment': None,
-			'max_cost': None,
-			'min_dist': True,
-			'output': QgsProcessingUtils.generateTempFilename("breach_depression_lc.tif")
-		}
-		outputs['Breachdepressionsleastcost'] = processing.run('wbt:BreachDepressionsLeastCost', alg_params, context=context, feedback=None, is_child_algorithm=True)
-
-		feedback.setCurrentStep(2)
-		if feedback.isCanceled():
-			return {}
-
 		# BreachDepressions
 		alg_params = {
-			'dem': outputs['Breachdepressionsleastcost']['output'],
+			'dem': outputs['Fillburn']['output'],
 			'fill_pits': True,
 			'flat_increment': None,
 			'max_depth': None,
@@ -69,7 +53,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 		}
 		outputs['Breachdepressions'] = processing.run('wbt:BreachDepressions', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-		feedback.setCurrentStep(3)
+		feedback.setCurrentStep(2)
 		if feedback.isCanceled():
 			return {}
 
@@ -81,7 +65,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 		}
 		D8pointer = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=None, is_child_algorithm=True)['output']
 
-		feedback.setCurrentStep(4)
+		feedback.setCurrentStep(3)
 
 		return {self.OUTPUT : D8pointer}
 
