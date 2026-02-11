@@ -53,7 +53,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 		}
 		outputs['Breachdepressions'] = processing.run('wbt:BreachDepressions', alg_params, context=context, feedback=None, is_child_algorithm=True)
 
-		feedback.setCurrentStep(3)
+		feedback.setCurrentStep(2)
 		if feedback.isCanceled():
 			return {}
 
@@ -65,7 +65,7 @@ class Compute_d8(QgsProcessingAlgorithm):
 		}
 		D8pointer = processing.run('wbt:D8Pointer', alg_params, context=context, feedback=None, is_child_algorithm=True)['output']
 
-		feedback.setCurrentStep(4)
+		feedback.setCurrentStep(3)
 
 		return {self.OUTPUT : D8pointer}
 
