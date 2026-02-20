@@ -24,7 +24,7 @@
 """
 
 import processing
-from qgis.PyQt.QtCore import QCoreApplication, QVariant
+from qgis.PyQt.QtCore import QCoreApplication, QMetaType
 from qgis.core import (
 	QgsProcessing,
 	QgsProcessingUtils,
@@ -93,8 +93,8 @@ class IndiceF1(QgsProcessingAlgorithm):
 
 		#Adding new field to output
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Nb_struct_amont", QVariant.Int))
-		sink_fields.append(QgsField("Indice F1", QVariant.Int))
+		sink_fields.append(QgsField("Nb_struct_amont", QMetaType.Int))
+		sink_fields.append(QgsField("Indice F1", QMetaType.Int))
 
 		(sink, dest_id) = self.parameterAsSink(
 			parameters,
