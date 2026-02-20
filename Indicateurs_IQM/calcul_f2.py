@@ -29,7 +29,7 @@ import numpy as np
 import processing
 import math
 
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsProcessing,
 	QgsRectangle,
@@ -113,8 +113,8 @@ class IndiceF2(QgsProcessingAlgorithm):
 
 		# Define sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Larg_med_connect_lat", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Indice F2", QVariant.Int))
+		sink_fields.append(QgsField("Larg_med_connect_lat", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Indice F2", QMetaType.Int))
 
 		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
