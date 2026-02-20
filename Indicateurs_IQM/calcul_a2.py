@@ -25,7 +25,7 @@
 
 
 import processing
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsProcessing,
 	QgsField,
@@ -76,7 +76,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 
 		# Define Sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Indice A2", QVariant.Int))
+		sink_fields.append(QgsField("Indice A2", QMetaType.Int))
 
 		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
