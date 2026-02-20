@@ -25,7 +25,7 @@
 """
 
 
-from qgis.PyQt.QtCore import QCoreApplication, QVariant
+from qgis.PyQt.QtCore import QCoreApplication, QMetaType
 from qgis.core import (
 	QgsProcessing,
 	QgsFeatureSink,
@@ -76,9 +76,9 @@ class calculerIc(QgsProcessingAlgorithm):
 
 		#Adding new field to output
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Dist lineaire", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Indice sinuosite", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Indice A4", QVariant.Int))
+		sink_fields.append(QgsField("Dist lineaire", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Indice sinuosite", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Indice A4", QMetaType.Int))
 
 		(sink, dest_id) = self.parameterAsSink(
 			parameters,
