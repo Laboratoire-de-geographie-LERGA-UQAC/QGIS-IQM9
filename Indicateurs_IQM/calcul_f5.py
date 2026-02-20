@@ -28,7 +28,7 @@ import numpy as np
 import math
 import warnings
 import processing
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsProcessing,
 	QgsProcessingUtils,
@@ -109,9 +109,9 @@ class IndiceF5(QgsProcessingAlgorithm):
 				raise RuntimeError(self.tr(f"Couche {name} invalide."))
 		# Define Sink
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Perc_15to30m", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Perc_gt30m", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Indice F5", QVariant.Int))
+		sink_fields.append(QgsField("Perc_15to30m", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Perc_gt30m", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Indice F5", QMetaType.Int))
 		(sink, dest_id) = self.parameterAsSink(
 			parameters,
 			self.OUTPUT,
