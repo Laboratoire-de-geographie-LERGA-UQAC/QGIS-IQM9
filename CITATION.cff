@@ -1,0 +1,44 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: IQM9*
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Samuel A.
+    family-names: Côté
+    affiliation: Université du Québec à Chicoutimi
+  - given-names: Tazjanna
+    family-names: Hall
+    affiliation: Université Concordia
+  - given-names: Johan
+    family-names: Bérubé
+    affiliation: Université du Québec à Chicoutimi
+  - given-names: Maxime
+    family-names: Boivin
+    affiliation: Université du Québec à Chicoutimi
+  - given-names: Pascale
+    family-names: Biron
+    affiliation: Université Concordia
+repository-code: >-
+  https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9
+abstract: >-
+  An automated version of the calculation of the
+  morphological quality index (MQI) with nine indices
+  developed for QGIS.
+keywords:
+  - QGIS
+  - geomorphology
+  - watersheds
+  - Python
+license: AGPL-3.0
+references:
+  - authors:
+      - family-names: Mehour
+        given-names: Karim
+    title: QGIS-IQM
+    type: software
+    repository-code: https://github.com/Mehourka/QGIS-IQM
