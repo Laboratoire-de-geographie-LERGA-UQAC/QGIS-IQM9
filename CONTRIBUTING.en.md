@@ -22,8 +22,8 @@ All types of contributions are encouraged and valued. See the [Table of Contents
   - [Reporting Bugs](#reporting-bugs)
   - [Suggesting Enhancements](#suggesting-enhancements)
   - [Your First Code Contribution](#your-first-code-contribution)
-  - [Improving The Documentation](#improving-the-documentation)
-- [Styleguides](#styleguides)
+  - [Improving The documentation](#improving-the-documentation)
+- [Style guides](#style-guides)
   - [Commit Messages](#commit-messages)
   - [Versioning](#versioning)
   - [Code structure](#code-structure)
@@ -32,9 +32,9 @@ All types of contributions are encouraged and valued. See the [Table of Contents
 
 ## I Have a Question
 
-> If you want to ask a question, we assume that you have read the available [Documentation](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/blob/main/README.en.md).
+> If you want to ask a question, we assume that you have read the available [documentation](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/blob/main/README.en.md).
 
-Before you ask a question, it is best to search for existing [Issues](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
+Before you ask a question, it is best to search for existing [issues](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues) that might help you. In case you have found a suitable issue and still need clarification, you can write your question in this issue. It is also advisable to search the internet for answers first.
 
 If you then still feel the need to ask a question and need clarification, we recommend the following:
 
@@ -47,7 +47,7 @@ We will then take care of the issue as soon as possible.
 <!--
 You might want to create a separate issue tag for questions and include it in this description. People should then tag their issues accordingly.
 
-Depending on how large the project is, you may want to outsource the questioning, e.g. to Stack Overflow or Gitter. You may add additional contact and information possibilities:
+Depending on how large the project is, you may want to outsource the questioning, e.g., to Stack Overflow or Gitter. You may add additional contact and information possibilities:
 - IRC
 - Slack
 - Gitter
@@ -69,12 +69,12 @@ Depending on how large the project is, you may want to outsource the questioning
 <!-- omit in toc -->
 #### Before Submitting a Bug Report
 
-A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to investigate carefully, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
+A good bug report shouldn't leave others needing to chase you up for more information. Therefore, we ask you to carefully investigate, collect information and describe the issue in detail in your report. Please complete the following steps in advance to help us fix any potential bug as fast as possible.
 
 - Make sure that you are using the latest version.
-- Determine if your bug is really a bug and not an error on your side e.g. using incompatible environment components/versions (Make sure that you have read the [documentation](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/blob/main/README.en.md). If you are looking for support, you might want to check [this section](#i-have-a-question)).
+- Determine if your bug is really a bug and not an error on your side e.g., using incompatible environment components/versions (Make sure that you have read the [documentation](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/blob/main/README.en.md). If you are looking for support, you might want to check [this section](#i-have-a-question)).
 - To see if other users have experienced (and potentially already solved) the same issue you are having, check if there is not already a bug report existing for your bug or error in the [bug tracker](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues?q=label%3Abug).
-- Also make sure to search the internet (including Stack Overflow, the different [QGIS issue reporting platforms](https://qgis.org/resources/support/bug-reporting/) and [QGIS GitHub Issue board for your current version](https://github.com/qgis/QGIS/issues)) to see if users outside of the GitHub or QGIS community have discussed the issue.
+- Also make sure to search the internet (including Stack Overflow, the different [QGIS issue reporting platforms](https://qgis.org/resources/support/bug-reporting/) and [QGIS GitHub issue boards for your current version](https://github.com/qgis/QGIS/issues)) to see if users outside of the GitHub or QGIS community have discussed the issue.
 - Collect information about the bug:
 - Stack trace (Traceback)
 - OS, Platform, Version and QGIS version (Windows, Linux, macOS, x86, ARM)
@@ -85,15 +85,16 @@ A good bug report shouldn't leave others needing to chase you up for more inform
 <!-- omit in toc -->
 #### How Do I Submit a Good Bug Report?
 
-> You must never report security related issues, vulnerabilities or bugs including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to <span style="color:red">**TBD**</span>.
+> You must never report security-related issues, vulnerabilities or bugs, including sensitive information to the issue tracker, or elsewhere in public. Instead sensitive bugs must be sent by email to <span style="color:red">**TBD**</span>.
 <!-- You may add a PGP key to allow the messages to be sent encrypted as well. -->
 
 We use GitHub issues to track bugs and errors. If you run into an issue with the project:
 
 - Open an [Issue](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues/new). (Since we can't be sure at this point whether it is a bug or not, we ask you not to talk about a bug yet and not to label the issue.)
 - Explain the behavior you would expect and the actual behavior.
-- Please provide as much context as possible and describe the *reproduction steps* that someone else can follow to recreate the issue on their own. This usually includes your code. For good bug reports you should isolate the problem and create a reduced test case.
+- Please provide as much context as possible and describe the *reproduction steps* that someone else can follow to recreate the issue on their own. This usually includes your code. For good bug reports, you should isolate the problem and create a reduced test case.
 - Provide the information you collected in the previous section.
+- Please also provide a copy of the QGIS log output of the script that encounters an error in txt format (in the case of a problem in executing a script).
 
 Once it's filed:
 
@@ -106,7 +107,7 @@ Once it's filed:
 
 ### Suggesting Enhancements
 
-This section guides you through submitting an enhancement suggestion for QGIS-IQM9, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestion and find related suggestions.
+This section guides you through submitting an enhancement suggestion for QGIS-IQM9, **including completely new features and minor improvements to existing functionality**. Following these guidelines will help maintainers and the community to understand your suggestions and find related suggestions.
 
 <!-- omit in toc -->
 #### Before Submitting an Enhancement
@@ -122,7 +123,7 @@ This section guides you through submitting an enhancement suggestion for QGIS-IQ
 Enhancement suggestions are tracked as [GitHub issues](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues).
 
 - Use a **clear and descriptive title** for the issue to identify the suggestion.
-- Provide a **step-by-step description of the suggested enhancement** in as many details as possible.
+- Provide a **step-by-step description of the suggested enhancement** with as many details as possible.
 - **Describe the current behavior** and **explain which behavior you expected to see instead** and why. At this point you can also tell which alternatives do not work for you.
 - You may want to **include screenshots or screen recordings** which help you demonstrate the steps or point out the part which the suggestion is related to. You can use [LICEcap](https://www.cockos.com/licecap/) to record GIFs on macOS and Windows, and the built-in [screen recorder in GNOME](https://help.gnome.org/users/gnome-help/stable/screen-shot-record.html.en) or [SimpleScreenRecorder](https://github.com/MaartenBaert/ssr) on Linux. <!-- this should only be included if the project has a GUI -->
 - **Explain why this enhancement would be useful** to most QGIS-IQM9 users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
@@ -139,20 +140,20 @@ The installation of various Visual Studio extensions is recommended, but not man
 - [The Python extension](https://marketplace.visualstudio.com/items?itemName=ms-python.python);
 - [The Git Graph Visual Code Extension](https://marketplace.visualstudio.com/items?itemName=mhutchie.git-graph), by mhutchie.
 
-We also highly recommend installing the QGIS plugin [*Plugin Reloader*](https://plugins.qgis.org/plugins/plugin_reloader/). It will allow you to reload the scripts unpon modification instead of closing and reopening QGIS each time. To do so, select the `processing` option in the scroll down menu of the plugin to reload the IQM9 scripts. It can be installed in the QGIS built in [plugin manager](https://docs.qgis.org/3.40/en/docs/training_manual/qgis_plugins/fetching_plugins.html).
+We also highly recommend installing the QGIS plugin [*Plugin Reloader*](https://plugins.qgis.org/plugins/plugin_reloader/). It will allow you to reload the scripts upon modification instead of closing and reopening QGIS each time. To do so, select the `processing` option in the scroll down menu of the plugin to reload the IQM9 scripts. It can be installed in the QGIS built in [plugin manager](https://docs.qgis.org/3.40/en/docs/training_manual/qgis_plugins/fetching_plugins.html).
 
-Before submitting your code make sure to test your changes by running each scripts affected (don't forget to run the scripts that call others like the `calcul_A123.py` and `Calcul_IQM.py`) to ensure that it does not cause QGIS to crash or deteriorates their performance.
+Before submitting your code, make sure to test your changes by running each script affected (don't forget to run the scripts that call others, like the `Calcul_IQM.py`) to ensure that it does not cause QGIS to crash or deteriorate their performance.
 
 ### Improving The Documentation
 <!-- TODO
 Updating, improving and correcting the documentation-->
->Please refer to the [styleguides section](#styleguides) (especially the [code structure section](#code-structure) and the [language accessibililty section](#language-accessibility)) before submitting documentation improvements.
+>Please refer to the [style guides section](#styleguides) (especially the [code structure section](#code-structure) and the [language accessibility section](#language-accessibility)) before submitting documentation improvements.
 
 Documentation improvements can be submitted in the same fashion as other [enhancement suggestions](#how-do-i-submit-a-good-enhancement-suggestion).
 
 
-## Styleguides
-> As this project strives to apply the [FAIR (Findable, Accessible, Interoperable and Reusable) principles](https://www.nature.com/articles/s41597-022-01710-x) we chose to follow the guidelines established by the [FAIR-BioRS guidelines](https://fair-biors.org/docs/guidelines). **Please read these guidelines carefully to ensure that your contribution complies with them**. Details regarding specific aspects of these guidelines are further explained below.
+## Style guides
+> As this project strives to apply the [FAIR (Findable, Accessible, Interoperable and Reusable) principles,](https://www.nature.com/articles/s41597-022-01710-x) we chose to follow the guidelines established by the [FAIR-BioRS guidelines](https://fair-biors.org/docs/guidelines). **Please read these guidelines carefully to ensure that your contribution complies with them**. Details regarding specific aspects of these guidelines are further explained below.
 ### Commit Messages
 Commit messages should be informative and concise. The git message format proposed here is inspired by the [Conventional Commits specification](https://www.conventionalcommits.org/en/v1.0.0/) and should consist of a header, a body and a footer :
 ```
@@ -177,7 +178,7 @@ The type defines the type of change of the commit. Accepted types (as defined by
 - Feat : Introduces a new feature;
 - Fix : Patches a bug;
 - Docs : Documentation only changes (rendered documentation or inline comments);
-- Style : Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc);
+- Style : Changes that do not affect the meaning of the code (whitespace, formatting, missing semicolons, etc.);
 - Refractor : A code change that neither fixes a bug nor adds a feature;
 - Perf : Improves performance;
 - Test : Adds missing tests or corrects existing tests;
@@ -185,27 +186,27 @@ The type defines the type of change of the commit. Accepted types (as defined by
 
 <!-- omit in toc -->
 #### Scope (optional)
-The scope add information on where the change as taken place. For changes made to a Python class or function the scope should be the name of the class or funtion. A change to a method of a class is considered a change to a class.
+The scope adds information on where the change as taken place. For changes made to a Python class or function, the scope should be the name of the class or function. A change to a method of a class is considered a change to a class.
 
-**If the changes are not limited to one location** the scope should be left out.
+**If the changes are not limited to one location,** the scope should be left out.
 
 <!-- omit in toc -->
 #### Description
-The description summarizes the changes of the commit. It should be imperative, begin with a word of action (e.g. fix, handle, modify, etc.), the first letter should not be capitalized and no dot should appear at the end
+The description summarizes the changes of the commit. It should be imperative, begin with a word of action (e.g., fix, handle, modify, etc.), the first letter should not be capitalized and no dot should appear at the end.
 
-**Note :** in case of a fix the description of the header should contain the issue name related to it (e.g. [`Fix : Journal Verbosity`](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues/6)).
+**Note :** in case of a fix, the description of the header should contain the issue name related to it (e.g., [`Fix : Journal Verbosity`](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues/6)).
 
 <!-- omit in toc -->
 #### Body (optional)
-Even though the body is optional, we strongly encourage you to fill it to help reviewers assess the content of the commit. The body should state the modifications included in the commit. It describes what the problem is and why the change is made. It should be succint and informative about the rationale and implications of the change.
+While the body is not required, we highly recommend providing it to facilitate reviewers’ evaluation of the proposed changes. The body should state the modifications included in the commit. It describes what the problem is and why the change is made. It should be succinct and informative about the rationale and implications of the change.
 
 <!-- omit in toc -->
 #### Footer (optional)
-The footer relates the commit to an issue or pull request number and is detectable by GitHub to automatically update an issue. If the commit relates to an issue without closing it, it should begin with the word `Refs` :
+The footer relates the commit to an issue or pull request number and is detectable by GitHub to automatically update an issue. When a commit pertains to an issue but fails to resolve it, it should start with the word `Refs`:
 ```
 Refs: #<number>
 ```
-If the commit closes an issue the word `Closes` should be used instead of `Refs`.
+If the commit closes an issue, the word `Closes` should be used instead of `Refs`.
 Breaking changes that introduce a breaking API change should be identified as `BREAKING CHANGE` followed by a description of the said change :
 ```
 BREAKING CHANGE : env vars now take precedence over config files.
@@ -222,7 +223,7 @@ and incremented as follows :
 - PATCH version is incremented when backward compatible bug fixes are made (correlates with the `Fix` [commit type](#types-of-commit))
 
 ### Code structure
-Inline with the [FAIR-BioRS guidelines regargind coding standards](https://fair-biors.org/docs/guidelines#2-follow-coding-standards-and-best-practices-during-development)
+Inline with the [FAIR-BioRS guidelines regarding coding standards,](https://fair-biors.org/docs/guidelines#2-follow-coding-standards-and-best-practices-during-development)
 your contributed code should :
 >- *Have code-level documentation (e.g., in code comments, description in the file headers) when deemed necessary for code reuse.*
 > - *Follow language-specific standards and best practices* [...]
@@ -233,7 +234,7 @@ We thus ask that contributors follow as much as possible the [PEP 8 Style Guide 
 #### Comments
 Comments should follow the comments section of the [PEP 8 Style Guide for Python Code](https://peps.python.org/pep-0008/#comments).
 
-Each separate process should include a short descriptive **block comment** at the begin of said process
+Each separate process should include a short descriptive **block comment** at the beginning of said process
 ```
 # Extract By Attribute
 alg_params = {
@@ -251,7 +252,7 @@ outputs['single_point']= processing.run('native:extractbyattribute', alg_params,
 #### Docstring format
 Docstring should follow, as much as possible, the [PEP 257 Docstring Conventions](https://peps.python.org/pep-0257/).
 
-When adding a new class or function to the code please follow the following docstring format :
+When adding a new class or function to the code, please follow the following docstring format :
 ```
 def NewFunction(a, b) :
     """
@@ -275,18 +276,17 @@ If the function or class returns no value (like only doing prints or outputting 
 
 
 ### Language accessibility
-In order to make the project available to a wider audience the readable files are made available in different languages. Inspired by the [multilanguage-readme-pattern repo](https://github.com/jonatasemidio/multilanguage-readme-pattern/tree/master), such files (like README and CONTRIBUTING) are named following the [W3C language tags](https://www.w3.org/International/articles/language-tags/).
+In order to make the project available to a wider audience, the readable files are made available in different languages. Inspired by the [multilanguage-readme-pattern repo](https://github.com/jonatasemidio/multilanguage-readme-pattern/tree/master), such files (like README and CONTRIBUTING) are named following the [W3C language tags](https://www.w3.org/International/articles/language-tags/) **for other languages than French** (which is the default language for the repo).
 ```
 README.en.md
-README.fr-CA.md
 ```
-The files are also adorned of [Shields IO](https://shields.io/) language badges (e.g. ![en](https://img.shields.io/badge/lang-en-red.svg)) with links to the corresponding alternative language document placed at the top.
+The top of the documentation files are also adorned with [Shields IO](https://shields.io/) language badges (e.g., ![en](https://img.shields.io/badge/lang-en-red.svg)) that identify the language of the file and provide a link to the corresponding alternative language document.
 
-If you want to contribute by including a version of the documents in your own language we would be thrilled to include it to the project ! Show your interest by [submitting an issue](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues) for this purpose in the repo.
+If you want to contribute by including a version of the document in your own language, we would be thrilled to include it in the project ! Show your interest by [submitting an issue](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/issues) for this purpose in the repo.
 
 <!-- omit in toc -->
 #### Translatable strings
-For all strings that are outputted in the QGIS GUI make use of translatable strings that can be exploited by QGIS. Doing so will allow the scripts output to be translatate and made available more widely. To do so make sure to import the `QCoreApplication` class and define a translate method in your processing class (exemple code taken from [QGIS User Guide](https://docs.qgis.org/3.40/en/docs/user_manual/processing/scripts.html)) :
+For all strings that are outputted in the QGIS GUI, make use of translatable strings that can be exploited by QGIS. Doing so will allow the script output to be translated and made available more widely. To do so, make sure to import the `QCoreApplication` class and define a translate method in your processing class (example code taken from [the QGIS User Guide](https://docs.qgis.org/3.40/en/docs/user_manual/processing/scripts.html)) :
 ```
 from qgis.PyQt.QtCore import QCoreApplication
 [...]
@@ -310,5 +310,5 @@ class ExampleProcessingAlgorithm(QgsProcessingAlgorithm):
 
 <!-- omit in toc -->
 ## Attribution
-- This project builds on the foundations and expands upon the original repo ([QGIS-IQM](https://github.com/Mehourka/QGIS-IQM)) of [Karim Mehour](https://github.com/Mehourka). We thank them for their initial contribution. The project is now maintened by the [_Laboratoire d’expertise et de recherche en géographie appliquée_ (LERGA)](https://github.com/Laboratoire-de-geographie-LERGA-UQAC) at the _Université du Québec à Chicoutimi_ (UQAC).
+- This project builds on the foundations and expands upon the original repo ([QGIS-IQM](https://github.com/Mehourka/QGIS-IQM)) of [Karim Mehour](https://github.com/Mehourka). We thank them for their initial contribution. The project is now maintained by the [_Laboratoire d’expertise et de recherche en géographie appliquée_ (LERGA)](https://github.com/Laboratoire-de-geographie-LERGA-UQAC) at the _Université du Québec à Chicoutimi_ (UQAC).
 - This guide is based on the [contributing.md](https://contributing.md/generator)!
