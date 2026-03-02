@@ -566,55 +566,107 @@ def make_prepared_engine_and_bbox(geom: QgsGeometry):
 
 def direction_angle_at_point_fast(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 	"""
-	Angle (radians) of the local tangent to the polyline seg_geom in the vicinity of pt_xy,
-	obtained via QgsGeometry.closestSegmentWithContext (C++ -> faster).
+	Fast-path: estimates the local tangent angle near pt_xy using
+	QgsGeometry.closestSegmentWithContext (C++ implementation).
 
-	Returns 0.0 if not applicable (empty geometry, zero segment).
+	Returns 0.0 on failure/degenerate cases, and is intentionally
+	conservative to let the robust fallback handle edge cases.
 	"""
 	if (seg_geom is None) or seg_geom.isEmpty():
 		return 0.0
 	try:
 		center_g = QgsGeometry.fromPointXY(pt_xy)
-		# Gives: (pt_on_seg, vertex_after, vertex_before, dist, left_of)
 		res = seg_geom.closestSegmentWithContext(center_g)
-		if not res or len(res) < 5:
+		# 'res' can vary by QGIS version. We want the two vertices (before/after).
+		if not res:
 			return 0.0
-		pt_on_seg, v_after, v_before, dist, left_of = res
-		# v_before and v_after are QgsPoint;
+		# Known patterns include:
+		#   (closest_pt, after_vertex, before_vertex, sqr_dist)
+		#   (closest_pt, after_vertex, before_vertex, dist, left_of)
+		# We'll try to unpack tolerantly.
+		v_after, v_before = None, None
+		if len(res) >= 3:
+			# Typical indexing: 0:closest_pt, 1:after, 2:before
+			v_after = res[1]
+			v_before = res[2]
+		if v_after is None or v_before is None:
+			return 0.0
 		ax, ay = v_before.x(), v_before.y()
-		bx, by = v_after.x(),  v_after.y()
-		dx = (bx - ax)
-		dy = (by - ay)
-		# If the segment is degenerate (dx=dy=0), we end up with 0.0.
+		bx, by = v_after.x(), v_after.y()
+		dx, dy = (bx - ax), (by - ay)
 		if dx == 0.0 and dy == 0.0:
 			return 0.0
 		return math.atan2(dy, dx)
 	except Exception:
-		# Silent Fallback (rare): return 0.0
 		return 0.0
 
 
 def direction_angle_at_point(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 	"""
-	Angle (radians) of the local tangent to the segment at point 'pt_xy'.
-	Robust method: find the closest small polyline segment, then find the angle of that segment.
+	Returns the local tangent angle (in radians) of the river segment near pt_xy.
+
+	Robust implementation:
+	- Linearizes curved geometries (CompoundCurve/MultiCurve) to avoid surprises;
+	- Detects multipart vs singlepart to safely use asMultiPolyline()/asPolyline();
+	- Finds the closest small polyline segment to pt_xy and computes its angle;
+	- Returns 0.0 when geometry is invalid/degenerate or angle cannot be determined.
+
+	Parameters
+	----------
+	seg_geom : QgsGeometry
+		The geometry of the river segment (LineString or MultiLineString, possibly curved).
+	pt_xy : QgsPointXY
+		The point near which the local direction (tangent) is required.
+
+	Returns
+	-------
+	float
+		Angle in radians in range (-pi, pi], or 0.0 if not computable.
 	"""
-	parts = seg_geom.asMultiPolyline()
+	if (seg_geom is None) or seg_geom.isEmpty():
+		return 0.0
+	# 1) Linearize if geometry is curved (CompoundCurve/MultiCurve)
+	try:
+		if QgsWkbTypes.isCurvedType(seg_geom.wkbType()):
+			seg_geom = seg_geom.segmentize()
+	except Exception:
+		# If segmentize() is unavailable/unsupported, continue as-is.
+		pass
+	# 2) Normalize to a list of polylines: [[QgsPointXY, ...], ...]
+	parts = []
+	try:
+		if seg_geom.isMultipart() or QgsWkbTypes.isMultiType(seg_geom.wkbType()):
+			parts = seg_geom.asMultiPolyline()
+		else:
+			pl = seg_geom.asPolyline()
+			parts = [pl] if pl else []
+	except TypeError:
+		# Some PyQGIS versions raise TypeError when calling asMultiPolyline() on LineString.
+		pl = seg_geom.asPolyline()
+		parts = [pl] if pl else []
+	except Exception:
+		return 0.0
 	if not parts:
-		parts = [seg_geom.asPolyline()]
+		return 0.0
+	# 3) Find the closest subsegment to pt_xy and compute its direction
 	best_seg = None
 	best_dist = float('inf')
+	pt_geom = QgsGeometry.fromPointXY(pt_xy)
 	for line in parts:
+		if not line or len(line) < 2:
+			continue
 		for a, b in zip(line[:-1], line[1:]):
-			dist = QgsGeometry.fromPolylineXY([a, b]).distance(QgsGeometry.fromPointXY(pt_xy))
-			if dist < best_dist:
-				best_dist = dist
+			seg_geom_ab = QgsGeometry.fromPolylineXY([a, b])
+			d = seg_geom_ab.distance(pt_geom)
+			if d < best_dist:
+				best_dist = d
 				best_seg = (a, b)
 	if best_seg is None:
 		return 0.0
 	a, b = best_seg
-	dx = (b.x() - a.x())
-	dy = (b.y() - a.y())
+	dx, dy = (b.x() - a.x()), (b.y() - a.y())
+	if dx == 0.0 and dy == 0.0:
+		return 0.0
 	return math.atan2(dy, dx)
 
 
