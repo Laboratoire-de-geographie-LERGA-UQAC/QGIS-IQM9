@@ -25,7 +25,7 @@
 
 
 import processing
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (QgsProcessing,
 	QgsField,
 	QgsFeatureSink,
@@ -101,8 +101,8 @@ class IndiceA3(QgsProcessingAlgorithm):
 
 		# Define sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Nb_barrage_amont", QVariant.Int))
-		sink_fields.append(QgsField("Indice A3", QVariant.Int))
+		sink_fields.append(QgsField("Nb_barrage_amont", QMetaType.Int))
+		sink_fields.append(QgsField("Indice A3", QMetaType.Int))
 
 		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
@@ -233,7 +233,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 			count_lyr = QgsVectorLayer("None", "dam_counts", "memory")
 			prov = count_lyr.dataProvider()
 			seg_field = source.fields().field(seg_id_field)
-			prov.addAttributes([QgsField(seg_id_field, seg_field.type()), QgsField("Nb_barrage_amont", QVariant.Int)])
+			prov.addAttributes([QgsField(seg_id_field, seg_field.type()), QgsField("Nb_barrage_amont", QMetaType.Int)])
 			count_lyr.updateFields()
 
 			new_feats = []
