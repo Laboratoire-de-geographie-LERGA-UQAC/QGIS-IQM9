@@ -27,7 +27,7 @@
 
 import numpy as np
 import processing
-from qgis.PyQt.QtCore import QVariant, QCoreApplication
+from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsField,
 	QgsProcessing,
@@ -100,8 +100,8 @@ class IndiceF4(QgsProcessingAlgorithm):
 				raise RuntimeError(self.tr(f"Couche {name} invalide."))
 		# Define Sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Pourc_var_long", QVariant.Double, prec=2))
-		sink_fields.append(QgsField("Indice F4", QVariant.Int))
+		sink_fields.append(QgsField("Pourc_var_long", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Indice F4", QMetaType.Int))
 
 		# Define sink
 		(sink, dest_id) = self.parameterAsSink(
