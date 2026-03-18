@@ -114,8 +114,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 
 		# =======================$|  Preprocessing  |$=======================
 		# (intermediate results required for calculating indices)
-
 		feedback.setProgressText(self.tr(f"Initialisation des étapes de prétraitement..."))
+		# Initialising needed parameters
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 
 		# 	Compute D8 pointer
 		feedback.setProgressText(self.tr(f"- Création du WBT D8 pointer"))
@@ -123,6 +124,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'dem': parameters['dem'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'stream_network': parameters['stream_network'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT 
 			}
@@ -156,6 +158,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'stream_network' : parameters['stream_network'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'D8' : outputs['CalculePointeurD8']['OUTPUT'],
 				'dams' : parameters['dams'],
 				'landuse' : parameters['landuse'],
@@ -176,9 +179,8 @@ class compute_iqm(QgsProcessingAlgorithm):
 		# =====================$|  Index calculation  |$=====================
 
 		feedback.setProgressText(self.tr(f"Calcul des indices..."))
-		# Initialising needed paramters
+		# Initialising needed parameters
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
-		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 
 		# 	Index A1

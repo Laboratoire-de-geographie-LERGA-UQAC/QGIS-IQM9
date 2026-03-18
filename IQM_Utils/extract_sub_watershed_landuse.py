@@ -31,6 +31,7 @@ from qgis.core import (
 	QgsProcessing,
 	QgsProject,
 	QgsProcessingUtils,
+	QgsProcessingParameterString,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterRasterLayer,
 	QgsProcessingMultiStepFeedback,
@@ -44,19 +45,35 @@ from qgis.core import (
 class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 	# Parameter identification constants 
 	OUTPUT = 'OUTPUT'
+	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=False, defaultValue=None))
 
 
+	def checkParameterValues(self, parameters, context):
+		# Checks if all the parameters are given properly
+		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+
+		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro. ! Veuillez fournir un champ identifiant du segment présent comme attribut de la couche.")
+		return True, ''
+
+
 	def processAlgorithm(self, parameters, context, model_feedback):
 		feedback = QgsProcessingMultiStepFeedback(13, model_feedback)
 		dams_layer = self.parameterAsVectorLayer(parameters, 'dams', context)
 		outputs = {}
+
+		# Making layers and parameters needed for processing
+		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 
 		feedback.setProgressText(self.tr(f"Polygonisation du bassin versant..."))
 		try :
@@ -65,13 +82,46 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 			alg_params = {
 				'dem': parameters['D8'],
 				'stream_network': parameters['stream_network'],
-				'snapped_outlets': QgsProcessingUtils.generateTempFilename("snappedoutlets.shp"),
+				'segment_id_field': seg_id_field,
+				'snapped_outlets': QgsProcessingUtils.generateTempFilename("snappedoutlets.shp")
 			}
 			outputs['snappedoutlets'] = processing.run('script:extractandsnapoutlets', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 			feedback.setCurrentStep(1)
+			# Remove duplicate snap points
+			alg_params = {
+				'INPUT': outputs['snappedoutlets'],
+				'OUTPUT': 'memory:snapped_outlets_cleaned'
+			}
+			snapped_cleaned = processing.run('native:deleteduplicategeometries', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+			# Adding a stable index to snappoints
+			alg_params = {
+				'INPUT': snapped_cleaned,
+				'FIELD_NAME': 'row_index',
+				'FIELD_TYPE': 1,             # integer
+				'FIELD_LENGTH': 10,
+				'NEW_FIELD': True,
+				'FORMULA': '@row_number + 1',
+				'OUTPUT': 'memory:snapped_outlets_indexed'
+			}
+			snapped_indexed = processing.run('native:fieldcalculator', alg_params,
+											context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 			# Generate watershed polygon
 			feedback.setProgressText(self.tr(f"Génération des polygones de bassins."))
-			watersheds = generate_basin_polygons(parameters['D8'], outputs['snappedoutlets'], temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=feedback)
+			watersheds = generate_basin_polygons(parameters['D8'], snapped_indexed, temp_prefix="watersheds", CRS=QgsProject.instance().crs(), context=context, feedback=feedback)
+			# Transfer the ID of the segment to the corresponding subbassin polygon
+			feedback.setProgressText(self.tr(f"Ajout de l'identificateur de segment ({seg_id_field}) aux sous-bassins."))
+			alg_params = {
+				'INPUT': watersheds,           # polygons
+				'FIELD': 'DN',
+				'INPUT_2': snapped_indexed,
+				'FIELD_2': 'row_index',
+				'METHOD': 1,                   # one-to-one
+				'FIELDS_TO_COPY': [seg_id_field],
+				'DISCARD_NONMATCHING': False,
+				'OUTPUT': 'memory:watersheds_with_id'
+			}
+			watersheds = processing.run('qgis:joinattributestable', alg_params,
+										context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 			feedback.setCurrentStep(2)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans la polygonisation du bassin versant : {str(e)}"))
@@ -259,6 +309,8 @@ class Extract_sub_watershed_landuse(QgsProcessingAlgorithm):
 			"----------\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
 			"WBT D8 Pointer: Matriciel\n" \
 			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
 			"Barrages : Vectoriel (point)\n" \
