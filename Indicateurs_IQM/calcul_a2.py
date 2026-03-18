@@ -35,6 +35,7 @@ from qgis.core import (
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterRasterLayer,
 	QgsProcessingParameterBoolean,
+	QgsProcessingParameterString,
 	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink
@@ -43,6 +44,7 @@ from qgis.core import (
 
 class IndiceA2(QgsProcessingAlgorithm):
 	OUTPUT = 'OUTPUT'
+	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterBoolean('SUB_WATERSHED_GIVEN', self.tr('Couche de sous-BV fournie ?'), defaultValue=False))
@@ -51,13 +53,18 @@ class IndiceA2(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
 
 
 	def checkParameterValues(self, parameters, context):
 		# Checks if all the parameters are given properly
 		use_sub_watershed = self.parameterAsBool(parameters, 'SUB_WATERSHED_GIVEN', context)
+		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 
+		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro. ! Veuillez fournir un champ identifiant du segment présent comme attribut de la couche.")
 		if use_sub_watershed:
 			if parameters['watersheds'] is None:
 				return False, self.tr('Vous avez choisi d’utiliser la couche de sous-BV, mais elle n’est pas fournie.')
@@ -71,11 +78,15 @@ class IndiceA2(QgsProcessingAlgorithm):
 		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
 		outputs = {}
 
+		# Making layers and parameters needed for processing
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+
 		# Define stream netwprk as source for data output
 		source = self.parameterAsVectorLayer(parameters, 'stream_network', context)
 
 		# Define Sink fields
 		sink_fields = source.fields()
+		sink_fields.append(QgsField("dam_area_sum_m2", QMetaType.Double))
 		sink_fields.append(QgsField("Indice A2", QMetaType.Int))
 
 		# Define sink
@@ -128,13 +139,21 @@ class IndiceA2(QgsProcessingAlgorithm):
 		try :
 			# Convert watershed features to vector layers
 			watersheds_lyr = QgsVectorLayer(outputs['watersheds'], 'ws', 'ogr')
+			# If present, a ‘seg_id_field’ key is preferred; otherwise, ‘DN’ (temporary) is used.
+			use_key = seg_id_field if (watersheds_lyr.fields().indexFromName(seg_id_field) != -1) else 'DN'
 			# Map feature ID and index values for each watershed layer
-			a2_map = {f['DN']: f['Indice A2'] for f in watersheds_lyr.getFeatures()}
+			a2_map = {f[use_key]: f['Indice A2'] for f in watersheds_lyr.getFeatures()}
+			dam_area_map = {f[use_key]: f["dam_area_sum"] for f in watersheds.getFeatures()}
 			# Write final indices to sink using map
 			for feat in source.getFeatures():
-				seg = feat['Segment']
+				seg = feat[seg_id_field]
+				# Get existing attributes
 				vals = feat.attributes()
-				vals += [a2_map.get(seg, None)]
+				# Get wanted values (None if absent)
+				a2_val   = a2_map.get(seg, None)
+				dam_area_val = dam_area_map.get(seg, None)
+				# Add the new attributes
+				vals += [dam_area_val, a2_val]
 				feat.setAttributes(vals)
 				sink.addFeature(feat, QgsFeatureSink.FastInsert)
 		except Exception as e :
@@ -183,6 +202,8 @@ class IndiceA2(QgsProcessingAlgorithm):
 			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
@@ -193,7 +214,7 @@ class IndiceA2(QgsProcessingAlgorithm):
 def computeA2(watersheds, context, feedback) :
 	a2_formula = """
 		CASE
-			WHEN "watershed_area" = 0 THEN 2
+			WHEN "watershed_area" = 0 THEN NULL
 			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.05 THEN 0
 			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.33 THEN 2
 			WHEN (coalesce("dam_area_sum", 0)/"watershed_area") < 0.66 THEN 3

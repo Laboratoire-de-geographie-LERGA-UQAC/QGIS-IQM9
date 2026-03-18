@@ -50,6 +50,7 @@ from qgis.core import (QgsProcessing,
 
 class IndiceA3(QgsProcessingAlgorithm):
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
+	DEFAULT_DOWN_SEG_ID_FIELD = 'Id_UEA_aval'
 	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 	OUTPUT = 'OUTPUT'
 
@@ -57,6 +58,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterNumber('dam_distance', self.tr('Distance max du barrage au segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=5,optional=True, minValue=1))
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
+		self.addParameter(QgsProcessingParameterString('segment_id_down_field', self.tr("Nom du champ identifiant le segment d'aval"), defaultValue=self.DEFAULT_DOWN_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
@@ -69,10 +71,13 @@ class IndiceA3(QgsProcessingAlgorithm):
 		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
 		ptref_layer  = self.parameterAsVectorLayer(parameters, 'ptref_widths', context)
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		# Verify that the given segment ID is in the rivnet and PtRef layer
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
-			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (rés. hydro. et PtRef largeur).")
+		if seg_id_down_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_down_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant le segment d'aval qui fait partie des attributs de la couche.")
 		if seg_id_field not in [f.name() for f in ptref_layer.fields()] :
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche de PtRef largeur ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
 		# Verify that the PtRef layer went through the preprocessings
@@ -92,6 +97,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 		feedback = QgsProcessingMultiStepFeedback(9, model_feedback)
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 		outputs = {}
 
 		# Define stream network as source for data output
@@ -124,7 +130,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 
 		# Create spatial index to make the finding of the nearest segment faster
 		hydro_index = QgsSpatialIndex(hydro_layer.getFeatures())
-		id_to_feat = {f['Id_UEA']: f for f in hydro_layer.getFeatures()}
+		id_to_feat = {f[seg_id_field]: f for f in hydro_layer.getFeatures()}
 
 		# Gets the number of features (dams) to iterate over
 		total_features = dams_layer.featureCount()
@@ -149,10 +155,10 @@ class IndiceA3(QgsProcessingAlgorithm):
 				downstream_feat = None
 				try :
 					# Finds the downstream river segment
-					downstream_id = current_feat['Id_UEA_aval']
+					downstream_id = current_feat[seg_id_down_field]
 					downstream_feat = id_to_feat.get(downstream_id)
 				except Exception as e :
-					feedback.reportError(self.tr(f"Erreur dans get_downstream_segment : {str(e)}"))
+					feedback.reportError(self.tr(f"Erreur dans la découverte du segment d'aval : {str(e)}"))
 					return {}
 				if downstream_feat is None:
 					#feedback.pushInfo(self.tr(f"Le segment d'aval ne fait pas partie du réseau hydrographique. Prochain segment."))
@@ -191,7 +197,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 						break
 					if (cum_dist + dist) < 1000:
 						# Get the downstream UEA to increment the count of dams
-						downstream_id = downstream_feat['Id_UEA']
+						downstream_id = downstream_feat[seg_id_field]
 						# Verify if we already counted this segment for this dam
 						if downstream_id in visited:
 							break
@@ -203,7 +209,7 @@ class IndiceA3(QgsProcessingAlgorithm):
 						# Get the downstream segment of the downstream segment to see if the dam is within range of another segment (for the next iteration of the while loop)
 						current_feat = downstream_feat
 						downstream_feat = None
-						downstream_id = current_feat['Id_UEA_aval']
+						downstream_id = current_feat[seg_id_down_field]
 						if not downstream_id:
 							# No downstream segment. We get out of the loop
 							break
@@ -359,20 +365,22 @@ class IndiceA3(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice A3 afin d'évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non-confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial liée aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
+			"Calcule l'indice A3 pour évaluer l’altération des régimes hydrologiques et sédimentaires ainsi que la présence de formes au niveau de la plaine alluviale à l’échelle du segment.\n Le niveau d’anthropisation du segment et la présence d’unités géomorphologiques sur la plaine sont évalués à l’intérieur du corridor fluvial sur une largeur respective de deux fois la largeur du lit mineur pour les milieux non confinés, ou de 15 m pour les milieux confinés. Le niveau d’anthropisation correspond à la surface de recouvrement relative à l’intérieur du corridor fluvial lié aux affectations urbanisées et agricoles. Une pénalité est appliquée en fonction du nombre de barrages à l’intérieur d’une distance de 1000 m à l’amont du segment analysé. Ces entraves qui créent des discontinuités dans le transport par charge de fond affectent grandement les conditions hydrauliques influençant les processus hydrogéomorphologiques et les formes présentes dans le lit mineur en aval de celles-ci.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Distance max du barrage au segment : Chiffre (int)(optionnel; valeur par défaut : 15)\n" \
-			"-> Distance maximale (en m) des barrages au segment. Parfois les points de barrages n'intersecte pas les lignes de réseau hydrographique. Cette distance est la distance maximale que l'algorithme vas chercher autour de chaque barrage pour trouver le segment de rivière le plus proche pour effectuer le compte du nombre de barrages.\n" \
+			"-> Distance maximale (en m) des barrages au segment. Parfois les points de barrages n'intersectent pas les lignes de réseau hydrographique. Cette distance est la distance maximale que l'algorithme va chercher autour de chaque barrage pour trouver le segment de rivière le plus proche pour effectuer le compte du nombre de barrages.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
 			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
+			" Champ ID segment d'aval : Chaine de caractère ('Id_UEA_aval' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière situé en aval. Source des données : Couche réseau hydrographique.\n" \
 			" Nbr de points visés : nombre entier (int; 200 par défaut)\n" \
 			"Barrages : Vectoriel (point)\n" \
 			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
 			"Utilisation du territoire : Matriciel\n" \
-			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matriciel (résolution 10 m) qui sera reclassé pour les classes forestière, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
+			"-> Classes d'utilisation du territoire pour le bassin versant donné sous forme matricielle (résolution 10 m) qui sera reclassé pour les classes forestières, agricole et anthropique, selon le guide d'utilisation du jeu de données. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Utilisation du territoire, [Jeu de données], dans Données Québec.\n" \
 			"PtRef largeur : Vectoriel (points)\n" \
 			"-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
 			" Champ PtRef largeur : Chaine de caractère ('Largeur_mod' par défaut)\n" \
@@ -400,14 +408,6 @@ def find_segment_for_structure_fast(struct, hydro_layer, hydro_index, max_dist=5
 			best_d = d
 			best = feat
 	return best if best and best_d <= max_dist else None
-
-
-def get_downstream_segment(hydro_layer, current_feat):
-	# Retrieves the ID of the downstream segment from the attribute field.
-	downstream_id = current_feat['Id_UEA_aval']
-	# Search for the corresponding segment in the layer
-	request = QgsFeatureRequest().setFilterExpression(f'"Id_UEA" = \'{downstream_id}\'')
-	return next(hydro_layer.getFeatures(request), None)
 
 
 def endpoints_as_points(geom: QgsGeometry):

@@ -33,6 +33,7 @@ from qgis.core import (
 	QgsField,
 	QgsProcessingException,
 	QgsProcessingAlgorithm,
+	QgsProcessingParameterString,
 	QgsProcessingParameterFeatureSource,
 	QgsProcessingParameterBoolean,
 	QgsProcessingParameterVectorLayer,
@@ -47,11 +48,15 @@ from qgis.core import (
 
 class IndiceF1(QgsProcessingAlgorithm):
 	INPUT = 'INPUT'
+	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
+	DEFAULT_DOWN_SEG_ID_FIELD = 'Id_UEA_aval'
 	OUTPUT = 'OUTPUT'
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterBoolean('structs_are_filtered', self.tr('La couche de structures fournie est elle filtrée (sortant de Filtrer structures) ?'), defaultValue=False))
 		self.addParameter(QgsProcessingParameterFeatureSource(self.INPUT, self.tr('Réseau hydrographique (CRHQ)'), [QgsProcessing.TypeVectorLine]))
+		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
+		self.addParameter(QgsProcessingParameterString('segment_id_down_field', self.tr("Nom du champ identifiant le segment d'aval"), defaultValue=self.DEFAULT_DOWN_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterVectorLayer('structs', self.tr('Structures (MTMD) (filtrées ou non)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie')))
@@ -61,7 +66,14 @@ class IndiceF1(QgsProcessingAlgorithm):
 		# Checks if all the parameters are given properly
 		structs_are_filtered = self.parameterAsBool(parameters, 'structs_are_filtered', context)
 		rivnet_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 		struct_layer = self.parameterAsVectorLayer(parameters, 'structs', context)
+		# Verify that the given segment ID is in the rivnet layer
+		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant le segment qui fait partie des attributs de la couche.")
+		if seg_id_down_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_down_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant le segment d'aval qui fait partie des attributs de la couche.")
 		if not struct_layer or not struct_layer.isValid() :
 			return False, self.tr("La couche de structures n'est pas valide ! Vérifiez que vous fournissez bien une couche.")
 		if structs_are_filtered: # If the structure layer is already filtered
@@ -111,12 +123,14 @@ class IndiceF1(QgsProcessingAlgorithm):
 		# Send some information to the user
 		model_feedback.pushInfo('CRS is {}'.format(source.sourceCrs().authid()))
  
-		#  Opening the layer we need for the process
+		#  Opening the layers and parameters we need for the process
 		hydro_layer = self.parameterAsVectorLayer(parameters, self.INPUT, context)
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 
 		# Create spatial index to make the finding of the nearest segment faster
 		hydro_index = QgsSpatialIndex(hydro_layer.getFeatures())
-		id_to_feat = {f['Id_UEA']: f for f in hydro_layer.getFeatures()}
+		id_to_feat = {f[seg_id_field]: f for f in hydro_layer.getFeatures()}
 
 		# Make the filtered structure df if its not given
 		structs_are_filtered = self.parameterAsBool(parameters, 'structs_are_filtered', context)
@@ -165,7 +179,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 				downstream_feat = None
 				try :
 					# Finds the downstream river segment
-					downstream_id = current_feat['Id_UEA_aval']
+					downstream_id = current_feat[seg_id_down_field]
 					downstream_feat = id_to_feat.get(downstream_id)
 				except Exception as e :
 					model_feedback.reportError(self.tr(f"Erreur dans get_downstream_segment : {str(e)}"))
@@ -207,7 +221,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 						break
 					if (cum_dist + dist) < 1000:
 						# Get the downstream UEA to increment the count of structures
-						downstream_id = downstream_feat['Id_UEA']
+						downstream_id = downstream_feat[seg_id_field]
 						# Verify if we already counted this segment for this structure
 						if downstream_id in visited:
 							break
@@ -219,8 +233,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 						# Get the downstream segment of the downstream segment to see if the structure is within range of another segment (for the next iteration of the while loop)
 						current_feat = downstream_feat
 						downstream_feat = None
-						downstream_id = current_feat['Id_UEA_aval']
-						#downstream_feat = get_downstream_segment(hydro_layer, current_feat)
+						downstream_id = current_feat[seg_id_down_field]
 						if not downstream_id:
 							# No downstream segment. We get out of the loop
 							break
@@ -248,7 +261,7 @@ class IndiceF1(QgsProcessingAlgorithm):
 		# Computing the F1 score for each river segment
 		try :
 			for feat in source.getFeatures():
-				seg_id = feat['Id_UEA']
+				seg_id = feat[seg_id_field]
 				struct_count = structure_counts.get(seg_id, 0)
 				f1_score = computeF1(struct_count)
 				# Add both the structure count and the f1_score to the attributes table
@@ -293,13 +306,17 @@ class IndiceF1(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F1 afin d'évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (traverses, ponts, ponceaux, intersections etc.) du réseau routier ou ferroviaire qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
+			"Calcule l'indice F1 pour évaluer la continuité du transit longitudinal du transit de sédiments et de bois.\n L'outil évalue la présence d\'obstacles (traverses, ponts, ponceaux, intersections, etc.) du réseau routier ou ferroviaire qui pourraient entraver ou nuire au transport de sédiments et de bois. Il prend en compte la densité linéaire des entraves sur 1000 m de rivière. Puisque les effets des entraves affectent la portion en aval de l'infrastructure, l'outil considère seulement les éléments artificiels situés à une distance maximale de 1000 m à l'amont du segment.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Couche de structures déjà filtrée fournise: Booléen (optionnel; valeur par défaut : Faux)\n" \
 			"-> Détermine si la couche de structures fournise à déjà été filtrée (préalablement produite par Filtrer structures).\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière. Source des données : Couche réseau hydrographique.\n" \
+			" Champ ID segment d'aval : Chaine de caractère ('Id_UEA_aval' par défaut)\n" \
+			"-> Nom du champ (attribut) identifiant le segment de rivière situé en aval. Source des données : Couche réseau hydrographique.\n" \
 			"Structures : Vectoriel (points)\n" \
 			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel) ayant été préalablement filtrées par le script Filtrer structures ou non. Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
 			"Réseau routier : Vectoriel (lignes; optionnel)\n" \

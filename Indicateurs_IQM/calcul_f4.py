@@ -115,7 +115,7 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 		# Pre-indexation of PtRef per segment (for faster searching)
 		model_feedback.pushInfo(self.tr('Indexation des PtRef par segment…'))
-		ptref_indexes_by_seg = build_ptref_spatial_indexes(ptref_layer, seg_id_field, width_field)
+		ptref_indexes_by_seg, ptref_global_index = build_ptref_spatial_indexes(ptref_layer, seg_id_field, width_field)
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
@@ -144,13 +144,12 @@ class IndiceF4(QgsProcessingAlgorithm):
 				pts = safe_points_along_line(seg_geom, step_m_local)
 			# Finding the nearest PtRef width
 			ptref_idx_entry = ptref_indexes_by_seg.get(sid)
-			if not ptref_idx_entry :
-				widths = [0]
-			else :
-				widths = []
-				for center_pt in pts :
-					w = nearest_width_value_indexed(center_pt, ptref_idx_entry)
-					widths.append(w)
+			if not ptref_idx_entry: # Fallback: if no point for this segment then use the global index
+				ptref_idx_entry = ptref_global_index
+			widths = []
+			for center_pt in pts :
+				w = nearest_width_value_indexed(center_pt, ptref_idx_entry)
+				widths.append(w)
 			# Calculate relative variations
 			div_distance = seg_len / len(pts)
 			ratio = natural_width_ratio(widths, div_distance)
@@ -226,17 +225,24 @@ def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str
 	Returns a dict: {sid: {'index': QgsSpatialIndex, 'features': [QgsFeature], 'width_field': width_field}}
 	"""
 	seg_to_features = {}
+	global_feats = []
+
 	for pf in ptref_layer.getFeatures():
 		sid = pf[seg_id_field]
 		seg_to_features.setdefault(sid, []).append(pf)
-
+		global_feats.append(pf)
+	# Build per-segment indexes
 	seg_to_index = {}
 	for sid, feats in seg_to_features.items():
 		idx = QgsSpatialIndex()
 		for f in feats:
 			idx.addFeature(f)
 		seg_to_index[sid] = {'index': idx, 'features': feats, 'width_field': width_field}
-	return seg_to_index
+	# Build global spatial index (fallback)
+	global_idx = QgsSpatialIndex()
+	for f in global_feats:
+		global_idx.addFeature(f)
+	return seg_to_index, {'index': global_idx, 'features': global_feats, 'width_field': width_field}
 
 
 def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:

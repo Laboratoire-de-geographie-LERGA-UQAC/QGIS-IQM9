@@ -44,6 +44,7 @@ from qgis.core import (
 
 class compute_iqm(QgsProcessingAlgorithm):
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
+	DEFAULT_DOWN_SEG_ID_FIELD = 'Id_UEA_aval'
 	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 
 	def initAlgorithm(self, config=None):
@@ -51,6 +52,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
+		self.addParameter(QgsProcessingParameterString('segment_id_down_field', self.tr("Nom du champ identifiant le segment d'aval"), defaultValue=self.DEFAULT_DOWN_SEG_ID_FIELD))
 		self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
@@ -72,6 +74,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		struct_layer = self.parameterAsVectorLayer(parameters, "structures", context)
 		landuse_layer = self.parameterAsRasterLayer(parameters, 'landuse', context)
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		# Dictionnary to iterate over the layers
 		lyr_dict = {"bande riv.":br_layer, "barrages":dams_layer, "res. hydro.":rivnet_layer, "DEM":dem_layer,"PtRef largeur":ptref_layer,"routes":road_layer, "structures":struct_layer, "util. terr.":landuse_layer}
@@ -94,6 +97,8 @@ class compute_iqm(QgsProcessingAlgorithm):
 		# Verify that seg_id_field is in the two lyrs (stream_network and PtRef)
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()] :
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
+		if seg_id_down_field not in [f.name() for f in rivnet_layer.fields()]:
+			return False, self.tr(f"Le champ '{seg_id_down_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant le segment d'aval qui fait partie des attributs de la couche.")
 		if seg_id_field not in [f.name() for f in ptref_layer.fields()] :
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche de PtRef largeur ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
 		return True, ''
@@ -109,8 +114,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 
 		# =======================$|  Preprocessing  |$=======================
 		# (intermediate results required for calculating indices)
-
 		feedback.setProgressText(self.tr(f"Initialisation des étapes de prétraitement..."))
+		# Initialising needed parameters
+		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
 
 		# 	Compute D8 pointer
 		feedback.setProgressText(self.tr(f"- Création du WBT D8 pointer"))
@@ -118,6 +124,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'dem': parameters['dem'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'stream_network': parameters['stream_network'],
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT 
 			}
@@ -151,6 +158,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'stream_network' : parameters['stream_network'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'D8' : outputs['CalculePointeurD8']['OUTPUT'],
 				'dams' : parameters['dams'],
 				'landuse' : parameters['landuse'],
@@ -171,9 +179,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 		# =====================$|  Index calculation  |$=====================
 
 		feedback.setProgressText(self.tr(f"Calcul des indices..."))
-		# Initialising needed paramters
+		# Initialising needed parameters
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
-		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		seg_id_down_field = self.parameterAsString(parameters, 'segment_id_down_field', context)
 
 		# 	Index A1
 		feedback.setProgressText(self.tr(f"- Calcul de l'indice A1"))
@@ -183,6 +191,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'SUB_WATERSHED_GIVEN' : True,
 				'watersheds' : watersheds,
 				'stream_network' : parameters['stream_network'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA1'] = processing.run('script:indicea1', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -201,6 +210,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'SUB_WATERSHED_GIVEN' : True,
 				'watersheds' : watersheds,
 				'stream_network' : outputs['IndiceA1']['OUTPUT'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA2'] = processing.run('script:indicea2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -219,6 +229,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'dam_distance' : 5, # default value : 5m
 				'stream_network' : outputs['IndiceA2']['OUTPUT'],
 				'segment_id_field' : seg_id_field, # default : Id_UEA
+				'segment_id_down_field' : seg_id_down_field, # default : Id_UEA_aval
 				'dams' : parameters['dams'],
 				'landuse' : parameters['landuse'],
 				'ptref_widths' : parameters['ptref_widths'],
@@ -257,6 +268,8 @@ class compute_iqm(QgsProcessingAlgorithm):
 			alg_params = {
 				'structs_are_filtered': True,
 				'INPUT': outputs['IndiceA4']['OUTPUT'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
+				'segment_id_down_field' : seg_id_down_field, # default : Id_UEA_aval
 				'structs' : outputs['FiltrerStructures']['OUTPUT'],
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
