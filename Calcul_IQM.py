@@ -191,6 +191,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'SUB_WATERSHED_GIVEN' : True,
 				'watersheds' : watersheds,
 				'stream_network' : parameters['stream_network'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA1'] = processing.run('script:indicea1', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -209,6 +210,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 				'SUB_WATERSHED_GIVEN' : True,
 				'watersheds' : watersheds,
 				'stream_network' : outputs['IndiceA1']['OUTPUT'],
+				'segment_id_field' : seg_id_field, # default : Id_UEA
 				'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceA2'] = processing.run('script:indicea2', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
