@@ -1,3 +1,26 @@
+"""
+*********************************************************************************
+*																				*
+*		QGIS-IQM9 is a program developed for QGIS as a tool to automatically	*
+*	calculate the Morphological Quality Index (MQI) of river systems			*
+*	Copyright (C) 2025 Laboratoire d'expertise et de recherche en géographie	*
+*	appliquée (LERGA) de l'Université du Québec à Chicoutimi (UQAC)				*
+*																				*
+*	This program is free software: you can redistribute it and/or modify		*
+*	it under the terms of the GNU Affero General Public License as published	*
+*	by the Free Software Foundation, either version 3 of the License, or		*
+*	(at your option) any later version.											*
+*																				*
+*	This program is distributed in the hope that it will be useful,				*
+*	but WITHOUT ANY WARRANTY; without even the implied warranty of				*
+*	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the				*
+*	GNU Affero General Public License for more details.							*
+*																				*
+*	You should have received a copy of the GNU Affero General Public License	*
+*	along with this program.  If not, see <https://www.gnu.org/licenses/>.		*
+*																				*
+*********************************************************************************
+"""
 
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
@@ -29,6 +52,7 @@ class AddStructures(QgsProcessingAlgorithm):
 		points_output = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
 
 		# Finding intersections between the road and the river network
+		feedback.setProgressText(self.tr("Recherche des intersections entre les cours d'eau et routes..."))
 		alg_params = {
 			'INPUT': parameters['cours_eau'],
 			'INPUT_FIELDS': ['""'],
@@ -44,6 +68,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Merging MTMD structures and river/road intersections
+		feedback.setProgressText(self.tr("Fusion des structures et intersections routes/rivières..."))
 		alg_params = {
 			'CRS': QgsProject.instance().crs(),
 			'LAYERS': [parameters['structures'],outputs['LineIntersections']['OUTPUT']],
@@ -56,6 +81,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Buffer around each structures
+		feedback.setProgressText(self.tr("Création de tampons autour des structures..."))
 		alg_params = {
 			'DISSOLVE': False,
 			'DISTANCE': 2,
@@ -73,6 +99,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Dissolving buffers into one shape (if multiple points are nearby)
+		feedback.setProgressText(self.tr("Regroupement des tampons entre eux (si plusieurs points sont près)..."))
 		alg_params = {
 			'FIELD': [''],
 			'INPUT': outputs['Buffer']['OUTPUT'],
@@ -86,6 +113,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Finding the centroid of the shape to get the mean coordinates for points close to one another
+		feedback.setProgressText(self.tr("Recherche du centroid des points près les un des autres..."))
 		alg_params = {
 			'ALL_PARTS': False,
 			'INPUT': outputs['Dissolve']['OUTPUT'],
@@ -98,6 +126,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Extract structures within distance of the river network
+		feedback.setProgressText(self.tr("Extraction des structures autour du réseau hydrographique..."))
 		alg_params = {
 			'DISTANCE': 100,
 			'INPUT': outputs['Centroids']['OUTPUT'],
@@ -111,6 +140,7 @@ class AddStructures(QgsProcessingAlgorithm):
 			return {}
 
 		# Add a unique id field with an incremental value
+		feedback.setProgressText(self.tr("Ajout d'un identifiant unique..."))
 		alg_params = {
 			'FIELD_NAME': 'fid',
 			'FIELD_TYPE': 1,  # Integer
@@ -124,6 +154,11 @@ class AddStructures(QgsProcessingAlgorithm):
 		AddUniqueId = processing.run('qgis:fieldcalculator', alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 
 		feedback.setCurrentStep(7)
+		if feedback.isCanceled():
+			return {}
+
+		# Ending message
+		feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
 		return {self.OUTPUT : AddUniqueId}
 
@@ -141,7 +176,7 @@ class AddStructures(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Sort les structures et les infrastructures routières qui coincide ou qui sont proche du cours d'eau.\n" \
+			"Sort les structures et les infrastructures routières qui coïncident ou qui sont proches du cours d'eau.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
