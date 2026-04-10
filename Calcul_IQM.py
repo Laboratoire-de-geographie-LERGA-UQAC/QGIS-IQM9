@@ -56,7 +56,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterRasterLayer('dem', self.tr('MNT LiDAR (10 m)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
-		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('routes', self.tr('Réseau routier (OSM ou AQréseau+)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterBoolean('use_agri', self.tr('Utiliser milieux agricoles (pour F2 et F3)?'), defaultValue=True, optional=True))
@@ -88,12 +88,12 @@ class compute_iqm(QgsProcessingAlgorithm):
 				return False, self.tr(f"La couche de {name} n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		# Verify that PtRef layer as passed through the UEA_PtRef_join script and that
 		if "Largeur_mod" not in [f.name() for f in ptref_layer.fields()]:
-			return False, self.tr(f"Le champ Largeur_mod est absent de la couche PtRef largeur! Veuillez vous assurer que la couche de points de références à préalablement passé par le script UEA_PtRef_join")
+			return False, self.tr(f"Le champ Largeur_mod est absent de la couche PtRef largeur! Veuillez vous assurer que la couche de points de références a préalablement passé par le script UEA_PtRef_join")
 		if width_field not in [f.name() for f in ptref_layer.fields()]:
 			return False, self.tr(f"Le champ '{width_field}' est absent de la couche PtRef largeur! Veuillez fournir un champ identifiant la largeur du segment qui se trouve dans cette couche.")
-		# Verify that the road layer passed through the preprocessing script
+		# Verify that the road layer passed through one of the preprocessing scripts
 		if "demi_emp" not in [f.name() for f in road_layer.fields()]:
-			return False, self.tr("Le champ 'demi_emp' est absent de la couche du réseau routier! Veuillez vous assurer que la couche de réseau routier à préalablement passé par le script Extraction routes d'OSM (IQM utils).")
+			return False, self.tr("Le champ 'demi_emp' est absent de la couche du réseau routier! Veuillez vous assurer que la couche de réseau routier a préalablement passé par le script Extraction routes d'OSM ou d'Extraction routes AQréseau+ (IQM utils).")
 		# Verify that seg_id_field is in the two lyrs (stream_network and PtRef)
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()] :
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro ! Veuillez fournir un champ identifiant du segment commun aux deux couches (res. hydro. et PtRef largeur).")
@@ -419,25 +419,25 @@ class compute_iqm(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule les neufs indices de qualité morphologique (IQM) de l'IQM9 de manière automatisée\n Voir les descriptions des indices individuels pour plus d'informations sur chacun.\n" \
+			"Calcule les neufs indices de qualité morphologique (IQM) de l'IQM9* de manière automatisée\n Voir les descriptions des indices individuels pour plus d'informations sur chacun.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"Bande riveraine : Vectoriel (polygones)\n" \
-			"-> Données vectorielles surfacique des peuplements écoforestiers pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Carte écoforestière à jour, [Jeu de données], dans Données Québec.\n" \
+			"-> Données vectorielles surfacique des peuplements écoforestiers pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS (MRNF). Carte écoforestière à jour, [Jeu de données], dans Données Québec.\n" \
 			"Barrages : Vectoriel (point)\n" \
 			"-> Répertorie les barrages d'un mètre et plus pour le bassin versant donné. Source des données : Centre d'expertise hydrique du Québec (CEHQ). Répertoire des barrages, [Jeu de données], dans Navigateur cartographique du Partenariat Données Québec, IGO2.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
 			"MNT LiDAR (10 m) : Matriciel\n" \
-			"-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MINISTÈRE DES RESSOURCES NATURELLES ET DES FORÊTS. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
+			"-> Modèle numérique de terrain par levés aériennes LiDAR de résolution de 1 m rééchantilloné à 10 m pour le bassin versant donné. Source des données : MRNF. Lidar - Modèles numériques (terrain, canopée, pente, courbe de niveau), [Jeu de données], dans Données Québec.\n" \
 			"PtRef largeur : Vectoriel (points)\n" \
-			"-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MINISTÈRE DE L’ENVIRONNEMENT, LUTTE CONTRE LES CHANGEMENTS CLIMATIQUES, FAUNE ET PARCS (MELCCFP). Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-			" Champ PtRef largeur : Chaine de caractère ('Largeur_mod' par défaut)\n" \
+			"-> Points de référence rapportant la largeur modélisée du segment contenant l'information de la couche PtRef et la table PtRef_mod_lotique provenant des données du CRHQ (couche sortante du script UEA_PtRef_join). Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"Champ PtRef largeur : Chaine de caractère ('Largeur_mod' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant la largeur du chenal. Source des données : Couche PtRef largeur.\n" \
 			"Réseau routier : Vectoriel (lignes)\n" \
-			"-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes et les chemins de fer. Source des données : OpenStreetMap contributors. Dans OpenStreetMap.\n" \
+			"-> Réseau routier linéaire représentant les rues, les avenues, les autoroutes, les pistes cyclables et les chemins de fer. Note : doit provenir d'un des scripts Extraction routes d'OSM ou d'Extraction routes AQréseau+ (IQM utils). Source des données : OpenStreetMap contributors, dans OpenStreetMap OU MRNF. Adresses Québec, [Jeu de données], dans Données Québec.\n" \
 			"Structures : Vectoriel (points)\n" \
 			"-> Ensemble de données vectorielles ponctuelles des structures sous la gestion du Ministère des Transports et de la Mobilité durable du Québec (MTMD) (pont, ponceau, portique, mur et tunnel). Source des données : MTMD. Structure, [Jeu de données], dans Données Québec.\n" \
 			"Utilisation du territoire : Matriciel\n" \
@@ -445,10 +445,9 @@ class compute_iqm(QgsProcessingAlgorithm):
 			"Utiliser milieux agricoles : Booléen (optionnel; valeur par défaut : Vrai) \n" \
 			"-> Détermine si l'algorithme doit considérer les milieux agricoles comme obstacles supplémentaires dans la plaine alluviale (pour calcul de F2 et F3) pour la reclassification des classes d'utilisation du territoire.\n" \
 			"Retourne\n" \
-			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique du bassin versant avec les scores de chaque indice de l'IQM9 calculés pour chaque UEA."
+			"-> Réseau hydrographique du bassin versant avec les scores de chaque indice de l'IQM9* calculés pour chaque UEA."
 		)
 
 
