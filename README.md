@@ -104,21 +104,24 @@ Le calcul de chaque indicateur nécessite différentes données géospatiales ti
 #### Tableau 1. Origine et nature des données nécessaires pour l'utilisation de l'outil IQM<sub>9</sub>*
 | Jeux de données (org. responsable)  | Description | Type de données    | Lien hypertexte vers la ressource |
 | :-------------------------------- | :------- | :-------- | :------- |
-| Bassins hydrographiques multiéchelles du Québec (MELCCFP)  | Délimitation des bassins hydrographiques  | Vectoriel (polygones)  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/bassins-hydrographiques-multi-echelles-du-quebec)  |
-| Cadre de référence hydrologique du Québec (CRHQ) v1.1 (MELCCFP)  | Réseau d’unités écologiques aquatiques (UEA) linéaire (UEA_L_N2) (réseau hydrographique) | Vectoriel (lignes) | [Données Québec](https://www.donneesquebec.ca/recherche/dataset/crhq) |
+| [Bassins hydrographiques multiéchelles du Québec (MELCCFP)](#bassins-hydrographiques-multiéchelle)  | Délimitation des bassins hydrographiques  | Vectoriel (polygones)  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/bassins-hydrographiques-multi-echelles-du-quebec)  |
+| [Cadre de référence hydrologique du Québec (CRHQ) v1.1 (MELCCFP)](#réseau-hydrographique-et-points-de-références-crhq)  | Réseau d’unités écologiques aquatiques (UEA) linéaire (UEA_L_N2) (réseau hydrographique) | Vectoriel (lignes) | [Données Québec](https://www.donneesquebec.ca/recherche/dataset/crhq) |
 |          | Points de référence (PtRef) (pour la largeur des UEA)  | Vectoriel (points)  |     |
-| Carte écoforestière à jour (MRNF)  | Caractéristiques du territoire forestier (pour la bande riveraine)  | Vectoriel (polygones)  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/carte-ecoforestiere-avec-perturbations)  |
-| Réseau routier (OpenStreetMap)  | Réseau routier, ferroviaire et cyclable  | Vectoriel (lignes)  | [OpenStreetMap](https://www.openstreetmap.org/export)  |
-| Structures (MTMD)  | Localisation ponctuelle des structures du MTMD (pont, ponceau, tunnel, etc.)  | Vectoriel (points)  | [Données Québec](https://www.donneesquebec.ca/recherche/dataset/structure)  |
-| Répertoire des barrages (MELCCFP)  | Localisation ponctuelle des barrages d’un mètre et plus  | Vectoriel (points)  | [Répertoire des barrages](https://www.cehq.gouv.qc.ca/barrages/default.asp#version-telechargeable)  |
-| LiDAR – Modèles numériques (MRNF)  | LiDAR résolution aux 1 m  | Matriciel  | [Forêt ouverte](https://www.foretouverte.gouv.qc.ca/)  |
-| Utilisation du territoire (MELCCFP)  | Classes d’utilisation du territoire (forestier, agricole, anthropique, etc.)  | Matriciel  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territoire)  |
+| [Carte écoforestière à jour (MRNF)](#carte-écoforestière-bande-riveraine)  | Caractéristiques du territoire forestier (pour la bande riveraine)  | Vectoriel (polygones)  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/carte-ecoforestiere-avec-perturbations)  |
+| [Réseau routier (OpenStreetMap)](#réseau-routier)<sup>a</sup>  | Réseau routier, ferroviaire et cyclable  | Vectoriel (lignes)  | [OpenStreetMap](https://www.openstreetmap.org/export)  |
+| [Structures (MTMD)](#structures)  | Localisation ponctuelle des structures du MTMD (pont, ponceau, tunnel, etc.)  | Vectoriel (points)  | [Données Québec](https://www.donneesquebec.ca/recherche/dataset/structure)  |
+| [Répertoire des barrages (MELCCFP)](#barrages)  | Localisation ponctuelle des barrages d’un mètre et plus  | Vectoriel (points)  | [Répertoire des barrages](https://www.cehq.gouv.qc.ca/barrages/default.asp#version-telechargeable)  |
+| [LiDAR – Modèles numériques (MRNF)](#modèle-numérique-de-terrain-mnt---lidar)  | LiDAR résolution aux 1 m  | Matriciel  | [Forêt ouverte](https://www.foretouverte.gouv.qc.ca/)  |
+| [Utilisation du territoire (MELCCFP)](#utilisation-du-territoire)  | Classes d’utilisation du territoire (forestier, agricole, anthropique, etc.)  | Matriciel  | [Données Québec](https://www.donneesquebec.ca/recherche/fr/dataset/utilisation-du-territoire)  |
+
 Abréviations utilisées : MELCCFP, ministère de l'Environnement, de la Lutte contre les changements climatiques, de la Faune et des Parcs du Québec; MRNF, ministère des Ressources naturelles et des Forêts du Québec; MTMD, ministère des Transports et de la Mobilité durable du Québec. 
+
+  > <sup>a</sup> **Pour le territoire québécois**, on peut alternativement utiliser le réseau routier fourni par le jeu de données *Adresses Québec* et sa géobase *AQréseau+* offert sur [Données Québec](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec). Voir la section [Réseau routier](#réseau-routier) pour plus d'informations.
 
 Il est également conseillé de minimiser l'emprise des données pour le bassin versant étudié, même si ce n'est pas obligatoire, cela permettra d'alléger les calculs et d'améliorer les performances de l'outil. Vous pouvez réduire l'emprise en sélectionnant uniquement les données pertinentes pour votre étude.
 Assurez-vous que toutes les données nécessaires à l'analyse sont présentes et correctement formatées. Les formats de fichiers testés par l'outil incluent les formats vectoriels, tels que les fichiers Shapefile (.shp), les fichiers geopackge (.gpkg), et les formats matriciels tels que GeoTIFF (.tif).
 
-> Dans les sections suivantes, autant que possible, les informations suivantes sont données pour chaque étape de traitement : 
+> Dans les sections suivantes, autant que possible, ***les informations suivantes sont données pour chaque étape de traitement*** : 
 > - Le nom de chaque outil de traitement tel qu'on le retrouve dans la boîte à outils de traitement de QGIS écrit en *italique*;
 > - Le nom de l'algorithme correspondant pour utilisation dans la console Python de QGIS (p. ex. *native : buffer*);
 > - Le nom des paramètres;
@@ -178,7 +181,7 @@ Dans le cas où un bassin versant s’étend sur plusieurs feuillets, chaque feu
 
 #### Réseau routier
 ---
-Pour extraire le réseau routier, nous recommandons d’utiliser l’extension QGIS QuickOSM ([voir section d'installation de QuickOSM](#quickosm)) qui rend l'extraction de données d'OpenStreetMap sur de grandes surfaces plus facile que sur [le portail web d'extraction d'OSM](https://www.openstreetmap.org/export).
+Pour extraire le réseau routier, nous recommandons d’utiliser l’extension QGIS QuickOSM ([voir section d'installation de QuickOSM](#quickosm)). Cela rend l'extraction de données d'OpenStreetMap sur de grandes surfaces plus facile que sur [le portail web d'extraction d'OSM](https://www.openstreetmap.org/export).
 
 Pour procéder à l'extraction du réseau routier à l'aide de l'extension QuickOSM, il faut : 
 1. Ouvrir l'onglet *Requête rapide*;
@@ -205,7 +208,7 @@ Pour procéder à l'extraction du réseau routier à l'aide de l'extension Quick
 | |rail| Voie ferrée | *Ibid.* | 5.486 | |
 | |tram| Ligne de tramway | *Ibid.* | 5.486 | |
 
-<sup>a</sup>La description d’OSM de chacune des valeurs est disponible sur les pages du wiki d’OSM pour la [clé highway](https://wiki.openstreetmap.org/wiki/FR:Key : highway) et la [clé railway](https://wiki.openstreetmap.org/wiki/FR:Key : railway). 
+<sup>a</sup>La description d’OSM de chacune des valeurs est disponible sur les pages du wiki d’OSM pour la [clé highway](https://wiki.openstreetmap.org/wiki/FR:Key:highway) et la [clé railway](https://wiki.openstreetmap.org/wiki/FR:Key:railway). 
 <sup>b</sup>Les routes sont identifiées en fonction de leur équivalent dans les normes de construction routière, tandis que les voies ferrées sont identifiées par les descriptions de clé ferroviaire d’OSM.
 
 
@@ -224,6 +227,40 @@ Pour plutôt utiliser [le portail web d'OSM,](https://www.openstreetmap.org/expo
  - Cliquer sur exporter;
  - Importer dans QGIS la couche linéaire *lines* du fichier map.osm téléchargé;
  - Fournir cette couche au script utilitaire d'*Extraction routes OSM* (en entrées la couche *lines* et la couche de délimitation du bassin).
+
+**Pour le territoire québécois uniquement**, il est possible d'utiliser [le produit AQréseau+ du jeu de donnée Adresses Québec, disponible sur Données Québec](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec). Cette géobase regroupe des données qui incluent le réseau routier (y compris les chemins forestiers et chemins de la Sépaq), les chemins de fer ainsi que les pistes cyclables de la Route verte sur l'ensemble de la province de Québec. Le script utilitaire ***Extraction routes AQréseau+*** permet d'extraire les routes pertinentes, de combiner les trois couches et d'ajouter la largeur de l'emprise des routes, pistes cyclables et chemins de fer.
+
+Pour chaque couche (réseau routier, cyclable et ferroviaire), le script sélectionne les routes suivantes :
+- Réseau routier :
+    - Retire les routes pour lesquelles la classification de route (ClsRte) correspond aux valeurs *Sans classe* (non autorisées pour la circulation automobile, soient des aires de contrôle, demi-tour non autorisé, etc.) ou *Liaison maritime* (c.-à-d. un lien maritime entre deux réseaux routiers);
+    - Retire les routes pour lesquelles la caractéristique du segment (CaractRte) correspond à la valeur *Tunnel*, puisque ce genre de route n'a pas d'impact sur le système hydrographique.
+- Réseau cyclable :
+    - Sélectionne les segments de pistes cyclables pour lesquelles l'état d'avancement de la Route verte (CodEtatAvc) est soit balisé (B) ou existant (E);
+    - Sélectionne seulement les segments pour lesquels l'identifiant de type de voie cyclable (CodeTypeVCyc) correspond à une piste cyclable en site propre (5) (soit une piste qui est à part de la route; évite les doublons avec les géométries de routes).
+- Réseau ferroviaire :
+    - Retire les segments de chemin de fer pour lesquels la classe de la voie (Classvoie) correspond à *Transbordeur* (un lien maritime qui transporte des wagons entre deux points).
+
+Les largeurs affectées aux différents chemins sont également inspirées des normes de construction routières en essayant le plus possible de faire correspondre les types de routes aux définitions du MTMD :
+
+| Couche AQréseau+ (attribut)  | Valeur | Type normes    | Source normes | Demi-emprise (m) | Notes |
+| :--------------- | :----------------- | :-------------------------------- | :------------ | :--------------- | :---- |
+| Reseau_routier (ClsRte) | Autoroute           | Type A : Autoroute à quatre voies | Ministère des Transports du Québec. (2012, 15 juin). Normes - Ouvrages routiers (13e éd., Tome I - Conception routière) (chap. 5, dessin normalisé 001). Les Publications du Québec. | 22.50 | On considère seulement les autoroutes à quatre voies qui sont ce qui est le plus répandu |
+|                         | Nationale  | Type B : Route nationale | *Ibidem*, (chap. 5, dessin normalisé 002) | 21.25 |  |
+|                         | Régionale  | Type C : Route nationale ou régionale | *Ibid.*, (chap. 5, dessin normalisé 003) | 17.50 | |
+|                         | Artère  | Type D : Route nationale régionale - collectrice ou locale | *Ibid.*, (chap. 5, dessin normalisé 004) | 15.00 | |
+|                         | Collectrice de transit  | Type E : Route régionale - collectrice ou locale | *Ibid.*, (chap. 5, dessin normalisé 005) | 12.50 | |
+|                         | Collectrice municipale  | Type F : Route collectrice ou locale | *Ibid.*, (chap. 5, dessin normalisé 006) | 10.00 | |
+|                         | Locale  | Type F : Route collectrice ou locale | *Loc. cit.* | 10.00 | |
+|                         | Accès aux ressources  | Type F : Route collectrice ou locale | *Loc. cit.* | 10.00 | |
+|                         | Accès aux ressources et aux localités isolées  | Type F : Route collectrice ou locale | *Loc. cit.* | 10.00 | |
+|                         | Rue piétonne  | Type F : Route collectrice ou locale | *Loc. cit.* | 10.00 | |
+| Reseau_routier (CaractRte)   | Bretelle  | Musoirs et bretelles d'autoroute une voie | *Ibidem*, (chap. 9, dessin normalisé 011 et 014) | 4.00 | On prend seulement en compte la largeur de la chaussée (5 m), de l'accotement droit (2 m) et gauche (1 m) |
+| Route_Verte (NbrVoieCyc) | 1 (sens unique)  | Voies cyclables | *Ibid.*, (chap. 15, p. 12) | 1.25 |  |
+|                          | 2 (double sens)  | Voies cyclables | *Loc. cit.* | 1.50 |  |
+| Route_ferroviaire (Etat) | autre que *NULL* | Voie ferrée | Transport Canada. (2014, 12 mars). Norme relative aux gabarits ferroviaires (TC E-05) (Schéma 1). | 5.486 | On considère la largeur minimale soit dans le cas où il n'y a pas de piste d'entretien |
+
+Le script ***Extraction routes AQréseau+*** prend en entrées les couches de réseau routier, de réseau cyclable, de réseau ferroviaire et de superficie du bassin-versant. Il reprojette les couches, sélectionne les routes situées dans la superficie du bassin, sélectionne les types de routes voulus, fusionne le tout en une couche et ajoute un attribut de demi-emprise pour la largeur des routes.
+  > Pour obtenir une couche fusionnée du réseau routier, cyclable et ferroviaire à l'échelle de la province, il suffit de fournir une couche de superficie de bassin versant vide (sans valeurs).
 
 La résultante est une couche vectorielle de lignes représentant le réseau routier, ferroviaire et cyclable à l’échelle du bassin versant.
 
@@ -330,7 +367,7 @@ Voici un exemple de la sortie du *Journal* lors de l'exécution normale du scrip
 ## Standards suivis
 > Pour plus d’informations sur chaque norme utilisée et sur la manière de les appliquer, veuillez consulter la section [« Guides de style » du document CONTRIBUTING.md](https://github.com/Laboratoire-de-geographie-LERGA-UQAC/QGIS-IQM9/blob/main/CONTRIBUTING.md#guides-de-style)
 
-Puisque ce projet vise à appliquer les [principes FAIR (Findable, Accessible, Interoperable and Reusable)](https://www.nature.com/articles/s41597-022-01710-x), nous avons choisi de suivre les directives établies par [les lignes directrices du FAIR-BioRS](https://fair-biors.org/docs/guidelines). Ces directives assurent l'application des meilleures pratiques de développement et de codage tout au long du développement du projet.
+Puisque ce projet vise à appliquer les [principes FAIR (*Findable, Accessible, Interoperable and Reusable*)](https://www.nature.com/articles/s41597-022-01710-x), nous avons choisi de suivre les directives établies par [les lignes directrices du FAIR-BioRS](https://fair-biors.org/docs/guidelines). Ces directives assurent l'application des meilleures pratiques de développement et de codage tout au long du développement du projet.
 
 Les standards suivants ont également été appliqués au cours de ce projet :
 - [Spécification Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) pour le formatage des messages git;

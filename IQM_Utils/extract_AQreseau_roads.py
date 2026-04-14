@@ -102,7 +102,6 @@ class extract_AQreseau_roads(QgsProcessingAlgorithm):
 
 
 		# Selection of road in the watershed (if none or empty just do the rest on all)
-		# mettre superficie BV optionnel
 		if watershed_area.featureCount() > 0 :
 			feedback.setProgressText(self.tr("Sélection des routes, chemins de fers et pistes cyclables dans le BV..."))
 		else :
@@ -194,10 +193,10 @@ class extract_AQreseau_roads(QgsProcessingAlgorithm):
 			return {}
 
 
-		# Adding road width to each layer (before fusion to move) ?
+		# Adding road width to each type of road
 		feedback.setProgressText(self.tr("Ajout des largeurs des routes..."))
 		demi_road = { # Based on data found in ministère des Transports du Québec. (2012, 15 juin). Tome I - Conception routière (13e éd.). Les Publications du Québec.
-			# Basé sur la moitiée de l'emprise nominale
+			# Based on half of the nominal width
 			'Autoroute' :  22.5, # Type A : Autoroute à quatre voies et terre plein central de 15 m
 			'Nationale' : 21.25, # Type B : Route nationale
 			'Régionale' : 17.50, # Type C : Route nationale ou régionale
@@ -212,7 +211,6 @@ class extract_AQreseau_roads(QgsProcessingAlgorithm):
 		demi_bretelle = {
 			'Bretelle' : 4.0 # Musoirs et bretelles d'autoroute une voie
 		}
-		#"Musoirs et bretelles d'autoroute une voie" : 4.0
 		demi_cycleway = { # Based on data found in ministère des Transports du Québec. (2012, 15 juin). Tome I - Conception routière (13e éd.). Les Publications du Québec.
 			1 : 1.25,  # Unidirectional cycleway
 			2 : 1.5    # Bidirectional cycleway

@@ -85,7 +85,6 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		#self.UTHRESH = self.parameterAsDouble(parameters, 'thresh', context)
 		# Define source stream net and other layers needed
 		source = self.parameterAsSource(parameters, 'rivnet', context)
 		rivnet_layer = self.parameterAsVectorLayer(parameters, 'rivnet', context)
@@ -201,13 +200,13 @@ class IndiceF4(QgsProcessingAlgorithm):
 			"-> Nom du champ (attribut) identifiant la largeur du chenal. Source des données : Couche PtRef largeur.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
-			"Retourne\n" \
 			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
 			" Nbr de points visés : nombre entier (int; 50 par défaut)\n" \
 			"-> Nombre de points de transects visés par segment. Permet de meilleures performances pour réduire le nombre de transects pour les longs segments. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
 			" Longueur min entre transects (m) : double (10 m par défaut)\n" \
 			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre de points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
+			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
 			"-> Réseau hydrographique du bassin versant avec le score de l'indice F4 calculé pour chaque UEA."
