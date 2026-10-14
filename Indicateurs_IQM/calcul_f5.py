@@ -195,7 +195,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 					perc30 = 0.0
 					perc15to30 = 0.0
 					indiceF5 = computeF5_from_sides(perc30, perc15to30)
-					segment.setAttributes(segment.attributes() + [perc30, perc15to30, indiceF5])
+					segment.setAttributes(segment.attributes() + [perc15to30, perc30, indiceF5])
 					sink.addFeature(segment, QgsFeatureSink.FastInsert)
 					model_feedback.setProgress(int(100 * (current) / max(1, total_features)))
 					continue
@@ -236,7 +236,7 @@ class IndiceF5(QgsProcessingAlgorithm):
 				indiceF5 = computeF5_from_sides(perc30, perc15to30)
 
 				# Adding results to the sink
-				segment.setAttributes(segment.attributes() + [perc15to30*100, perc30*100,  indiceF5])
+				segment.setAttributes(segment.attributes() + [perc15to30*100, perc30*100, indiceF5])
 				sink.addFeature(segment, QgsFeatureSink.FastInsert)
 
 				# Increments the progress bar
@@ -322,7 +322,7 @@ def make_layer(obj, context, name='layer'):
 def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str):
 	"""
 	Builds spatial indexes by segment.
-	Returns a dict: {sid: {'index': QgsSpatialIndex, 'features': [QgsFeature], 'width_field': width_field}}
+	Returns a dict: {sid: {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': width_field}}
 	"""
 	seg_to_features = {}
 	for pf in ptref_layer.getFeatures():
@@ -332,9 +332,15 @@ def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str
 	seg_to_index = {}
 	for sid, feats in seg_to_features.items():
 		idx = QgsSpatialIndex()
+		id_to_feat = {}
 		for f in feats:
 			idx.addFeature(f)
-		seg_to_index[sid] = {'index': idx, 'features': feats, 'width_field': width_field}
+			id_to_feat[f.id()] = f
+		seg_to_index[sid] = {
+			'index': idx, 
+			'features': feats,
+			'id_to_feat': id_to_feat,
+			'width_field': width_field}
 	return seg_to_index
 
 
@@ -535,14 +541,14 @@ def direction_angle_at_point(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> float or None:
 	"""
 	Find the closest width via spatial index for this segment.
-	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'width_field': 'Width_mod'}
+	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': 'Largeur_mod'}
 	"""
 	if not seg_ptref_idx_entry:
 		return None
 	idx = seg_ptref_idx_entry['index']
-	feats = seg_ptref_idx_entry['features']
+	id_to_feat = seg_ptref_idx_entry['id_to_feat']
 	width_field = seg_ptref_idx_entry['width_field']
-	# small search box (~50 m around the point) to limit candidates
+	# Search box (~100 m around the point) to limit candidates
 	# (you can adjust the radius according to the density of PtRef)
 	r = 100
 	rect = QgsRectangle(center_pt.x() - r, center_pt.y() - r, center_pt.x() + r, center_pt.y() + r)
@@ -552,10 +558,9 @@ def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> f
 	center_g = QgsGeometry.fromPointXY(center_pt)
 	# if there are no candidates in the bbox, we try them all (rare)
 	if not candidate_ids:
-		candidate_ids = [f.id() for f in feats]
-	# Direct access to features by FID via a query; otherwise local loop
-	# (here, we go through the ‘feats’ list, which is simpler and faster in memory)
-	id_to_feat = {f.id(): f for f in feats}
+		candidate_ids = id_to_feat.keys()
+	# Retrieve each candidate feature by FID from the precomputed id_to_feat dict
+	# (built once per segment in build_ptref_spatial_indexes, O(1) lookup)
 	for fid in candidate_ids:
 		pf = id_to_feat.get(fid)
 		if pf is None:
@@ -625,7 +630,7 @@ def build_band_union_for_segment(seg_geom: QgsGeometry, bande_layer: QgsVectorLa
 def nearest_width_value(center_pt: QgsPointXY, ptrefs_for_seg, width_field: str):
 	"""
 	Retourne la largeur la plus proche parmi les PtRef du segment (sinon None).
-	Pas de fallback global : tu as dit que tu vérifies les IDs en amont.
+	Pas de fallback global : les IDs sont vérifiés en amont.
 	"""
 	if not ptrefs_for_seg:
 		return None
