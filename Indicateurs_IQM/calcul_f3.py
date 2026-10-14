@@ -280,7 +280,6 @@ class IndiceF3(QgsProcessingAlgorithm):
 							theta = direction_angle_at_point(seg_geom, center_pt)
 						# 2) Start offset = channel width/2 if PtRef exists, else 2 m (width)/2
 						# Get the PtRef points index for this segments
-						ptref_idx_entry = ptref_indexes_by_seg.get(sid)
 						w = nearest_width_value_indexed(center_pt, ptref_idx_entry)
 						offset = (float(w) / 2.0) if (w and w > 0) else 2/2
 						# Transects left/right of length of TRANSECT_LENGTH 
