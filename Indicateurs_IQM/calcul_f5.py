@@ -121,10 +121,9 @@ class IndiceF5(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 		model_feedback.setProgressText(self.tr("Dissolve des polygones de bande riveraine..."))
-		# Dissolve than simplify the riparian zone (only once)
 		bande_dissolved = processing.run('native:dissolve', {
 			'INPUT': bande_layer,
-			'SEPARATE_DISJOINT': False,
+			'SEPARATE_DISJOINT': True,
 			'OUTPUT': 'memory:'
 		}, context=context)['OUTPUT']
 		if model_feedback.isCanceled():
@@ -132,14 +131,35 @@ class IndiceF5(QgsProcessingAlgorithm):
 		model_feedback.setProgressText(self.tr("Simplification des polygones de bande riveraine..."))
 		bande_simplified = processing.run('native:simplifygeometries', {
 			'INPUT': bande_dissolved,
-			'METHOD': 0,          # distance
-			'TOLERANCE': 2.0,     # à ajuster (2–5 m selon ton besoin)
+			'METHOD': 0,
+			'TOLERANCE': 2.0,
 			'OUTPUT': 'memory:'
 		}, context=context)['OUTPUT']
 		if model_feedback.isCanceled():
 			return {}
-		# Make a vector layer of the simplified and dissolved riparian zone polygons
-		bande_global = make_layer(bande_simplified, context, 'bande_global_dissolved_simplified')
+		model_feedback.setProgressText(self.tr("Réparation des géométries simplifiées des polygones de bande riveraine..."))
+		bande_repaired = processing.run('native:fixgeometries', {
+			'INPUT': bande_simplified,
+			'METHOD': 0,
+			'OUTPUT': 'memory:'
+		}, context=context)['OUTPUT']
+		if model_feedback.isCanceled():
+			return {}
+		# Split the large dissolved polygons into small pieces (max N vertices) for local queries
+		model_feedback.setProgressText(self.tr("Subdivision des polygones de bande riveraine..."))
+		bande_subdivided = processing.run('native:subdivide', {
+			'INPUT': bande_repaired,
+			'MAX_NODES': 256,
+			'OUTPUT': 'memory:'
+		}, context=context)['OUTPUT']
+		if model_feedback.isCanceled():
+			return {}
+		bande_global = make_layer(bande_subdivided, context, 'bande_global_subdivided')
+
+		# Spatial index of the riparian zone pieces (built only once)
+		model_feedback.pushInfo(self.tr('Indexation spatiale de la bande riveraine…'))
+		band_index, band_geoms = build_band_spatial_index(bande_global)
+		band_engines = {}  # fid -> prepared GEOS engine (filled lazily)
 
 		# Pre-indexation of PtRef per segment
 		model_feedback.pushInfo(self.tr('Indexation des PtRef par segment…'))
@@ -175,23 +195,10 @@ class IndiceF5(QgsProcessingAlgorithm):
 				# 1) Max river width on the segment
 				ptref_idx_entry = ptref_indexes_by_seg.get(sid)
 				w_max = max_width_for_segment(ptref_idx_entry)  # 0.0 if no PtRef
-				# 2) Adaptative clip radius (max offset + L + margin)
+				# 2) Search radius (max offset + transect length + margin)
 				R = (w_max / 2.0) + TRANSECT_LENGTH + MARGIN
-				# 3) Adaptive buffer and simplified dissolved riparian zone
-				clip_buf = seg_geom.buffer(R, 8)
-				# Intersect the geometry of the riparian zone polygon with the segment max width buffer
-				band_clip = QgsGeometry()
-				for bf in bande_global.getFeatures():
-					g = bf.geometry()
-					if g and not g.isEmpty() and g.intersects(clip_buf):
-						inter = g.intersection(clip_buf)
-						if inter and not inter.isEmpty():
-							band_clip = band_clip.combine(inter) if not band_clip.isEmpty() else inter
-				# Make bounding box of the clipped riparian zone polygon to verify if the transect intersects
-				engine_prepared, band_bbox = make_prepared_engine_and_bbox(band_clip)
-				# Verify if the riparian zone union is empty (no riparian zone around the segment)
-				if (engine_prepared is None):
-					# Nothing to intersect for this segment
+				# 3) Cheap check: no riparian piece near the segment -> zeros
+				if not band_index.intersects(seg_geom.boundingBox().buffered(R)):
 					perc30 = 0.0
 					perc15to30 = 0.0
 					indiceF5 = computeF5_from_sides(perc30, perc15to30)
@@ -218,8 +225,8 @@ class IndiceF5(QgsProcessingAlgorithm):
 					left_line  = make_transect_line(center_pt, theta + math.pi/2.0, offset, TRANSECT_LENGTH)
 					right_line = make_transect_line(center_pt, theta - math.pi/2.0, offset, TRANSECT_LENGTH)
 					# Check the length of the transect intersection with riparian zone, if no riparian zone to intersect returns zero
-					left_int_len  = fast_intersection_length(left_line, band_clip, engine_prepared, band_bbox)
-					right_int_len = fast_intersection_length(right_line, band_clip, engine_prepared, band_bbox)
+					left_int_len  = transect_band_length(left_line, band_index, band_geoms, band_engines)
+					right_int_len = transect_band_length(right_line, band_index, band_geoms, band_engines)
 					# Tests if the intersection length is smaller than 15m, if its not the case we skip the count of the transect
 					if (left_int_len < 15.0) and (right_int_len < 15.0):
 						continue
@@ -317,6 +324,22 @@ def make_layer(obj, context, name='layer'):
 			raise RuntimeError(f"Impossible de charger la couche '{name}' depuis: {obj}")
 		return lyr
 	raise TypeError(f"Type inattendu pour '{name}': {type(obj)}")
+
+
+def build_band_spatial_index(band_layer: QgsVectorLayer):
+	"""
+	Builds a spatial index of the riparian zone pieces and caches their geometries.
+	Returns (QgsSpatialIndex, {fid: QgsGeometry}).
+	"""
+	index = QgsSpatialIndex()
+	geoms = {}
+	for f in band_layer.getFeatures():
+		g = f.geometry()
+		if g is None or g.isEmpty():
+			continue
+		index.addFeature(f)
+		geoms[f.id()] = QgsGeometry(g)  # Cached copy: no getFeature() per segment
+	return index, geoms
 
 
 def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str):
@@ -418,50 +441,51 @@ def max_width_for_segment(ptref_idx_entry) -> float:
 	return wmax
 
 
-def make_prepared_engine_and_bbox(geom: QgsGeometry):
+def transect_band_length(line: QgsGeometry, band_index: QgsSpatialIndex, band_geoms: dict, band_engines: dict) -> float:
 	"""
-	Returns (engine_prepared, bbox) for geom.
-	- engine_prepared: GEOS engine prepared for fast predicates (intersects, contains, etc.).
-	- bbox: axis-aligned bounding box (AABB) of geom for the broad-phase filter.
+	Length of 'line ∩ riparian zone' = sum of the intersections with each subdivided piece
+	(valid because the pieces don't overlap).
+	A prepared GEOS engine is created once per piece (lazily) and reused for every transect.
 	"""
-	if (geom is None) or geom.isEmpty():
-		return None, None
-	engine = QgsGeometry.createGeometryEngine(geom.constGet())
-	engine.prepareGeometry()
-	bbox = geom.boundingBox()
-	return engine, bbox
+	total = 0.0
+	line_c = line.constGet()
+	for fid in band_index.intersects(line.boundingBox()):
+		eng = band_engines.get(fid)
+		if eng is None:
+			g = band_geoms.get(fid)
+			if g is None:
+				continue
+			eng = QgsGeometry.createGeometryEngine(g.constGet())
+			eng.prepareGeometry()
+			band_engines[fid] = eng
+		# Fast exact predicate on the prepared piece
+		if not eng.intersects(line_c):
+			continue
+		# Transect entirely inside the piece -> no overlay needed
+		if eng.contains(line_c):
+			total += line.length()
+			continue
+		# Partial overlap -> real intersection (piece already converted to GEOS)
+		inter = eng.intersection(line_c)
+		if inter is not None and not inter.isEmpty():
+			total += inter.length()
+	return total
 
 
 def direction_angle_at_point_fast(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 	"""
-	Fast-path: estimates the local tangent angle near pt_xy using
-	QgsGeometry.closestSegmentWithContext (C++ implementation).
-
-	Returns 0.0 on failure/degenerate cases, and is intentionally
-	conservative to let the robust fallback handle edge cases.
+	Fast-path: local tangent angle near pt_xy using closestSegmentWithContext (C++).
+	Returns 0.0 on failure so the robust fallback can take over.
 	"""
 	if (seg_geom is None) or seg_geom.isEmpty():
 		return 0.0
 	try:
-		center_g = QgsGeometry.fromPointXY(pt_xy)
-		res = seg_geom.closestSegmentWithContext(center_g)
-		# 'res' can vary by QGIS version. We want the two vertices (before/after).
-		if not res:
+		sqr_dist, _min_pt, after_vertex, _left_of = seg_geom.closestSegmentWithContext(pt_xy)
+		if sqr_dist < 0 or after_vertex <= 0:
 			return 0.0
-		# Known patterns include:
-		#   (closest_pt, after_vertex, before_vertex, sqr_dist)
-		#   (closest_pt, after_vertex, before_vertex, dist, left_of)
-		# We'll try to unpack tolerantly.
-		v_after, v_before = None, None
-		if len(res) >= 3:
-			# Typical indexing: 0:closest_pt, 1:after, 2:before
-			v_after = res[1]
-			v_before = res[2]
-		if v_after is None or v_before is None:
-			return 0.0
-		ax, ay = v_before.x(), v_before.y()
-		bx, by = v_after.x(), v_after.y()
-		dx, dy = (bx - ax), (by - ay)
+		p_after = seg_geom.vertexAt(after_vertex)
+		p_before = seg_geom.vertexAt(after_vertex - 1)
+		dx, dy = (p_after.x() - p_before.x()), (p_after.y() - p_before.y())
 		if dx == 0.0 and dy == 0.0:
 			return 0.0
 		return math.atan2(dy, dx)
@@ -591,72 +615,6 @@ def make_transect_line(center_pt: QgsPointXY, normal_angle: float, offset: float
 	end   = QgsPointXY(center_pt.x() + (offset + length_m) * math.cos(normal_angle),
 						center_pt.y() + (offset + length_m) * math.sin(normal_angle))
 	return QgsGeometry.fromPolylineXY([start, end])
-
-
-def fast_intersection_length(line: QgsGeometry, band_union: QgsGeometry, engine_prepared, band_bbox):
-	"""
-	Longueur de l'intersection 'line ∩ band_union' avec court-circuits :
-	1) BBOX (très bon marché) : si pas d'intersection d'enveloppes -> 0
-	2) Prédicat préparé (exact & rapide) : si pas d'intersection -> 0
-	3) Overlay (coûteux) : seulement si on sait qu'il y a intersection réelle.
-	"""
-	if (line is None) or line.isEmpty() or (band_union is None) or band_union.isEmpty():
-		return 0.0
-	# 1) Broad-phase: BBOX
-	if not line.boundingBox().intersects(band_bbox):
-		return 0.0
-	# 2) Narrow-phase: prédicat exact sur geometry préparée
-	if not engine_prepared.intersects(line.constGet()):
-		return 0.0
-	# 3) Overlay: on calcule enfin l'intersection réelle (coûteuse)
-	inter = line.intersection(band_union)
-	return inter.length() if (inter and not inter.isEmpty()) else 0.0
-
-
-
-def build_band_union_for_segment(seg_geom: QgsGeometry, bande_layer: QgsVectorLayer, band_index: QgsSpatialIndex) -> QgsGeometry:
-	clip = seg_geom.buffer(31.0, 8)
-	ids = band_index.intersects(clip.boundingBox())
-	parts = []
-	for fid in ids:
-		g = bande_layer.getFeature(fid).geometry()
-		if g and not g.isEmpty() and clip.intersects(g):
-			c = clip.intersection(g)
-			if c and not c.isEmpty():
-				parts.append(c)
-	return QgsGeometry.unaryUnion(parts) if parts else QgsGeometry()
-
-
-def nearest_width_value(center_pt: QgsPointXY, ptrefs_for_seg, width_field: str):
-	"""
-	Retourne la largeur la plus proche parmi les PtRef du segment (sinon None).
-	Pas de fallback global : les IDs sont vérifiés en amont.
-	"""
-	if not ptrefs_for_seg:
-		return None
-	best_w = None
-	best_d = float('inf')
-	center_g = QgsGeometry.fromPointXY(center_pt)
-	for pf in ptrefs_for_seg:
-		g = pf.geometry()
-		if not g or g.isEmpty():
-			continue
-		d = g.distance(center_g)
-		try:
-			val = pf[width_field]
-			w = float(val) if val is not None else None
-		except Exception:
-			w = None
-		if w is not None and d < best_d:
-			best_d, best_w = d, w
-	return best_w
-
-
-def line_intersection_length_union(line_geom: QgsGeometry, band_union: QgsGeometry) -> float:
-	if not band_union or band_union.isEmpty() or not line_geom or line_geom.isEmpty():
-		return 0.0
-	inter = line_geom.intersection(band_union)
-	return inter.length() if (inter and not inter.isEmpty()) else 0.0
 
 
 def computeF5_from_sides(p30, p15to30):
