@@ -95,7 +95,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		if not is_metric_crs(ptref_layer.crs()) :
 			return False, self.tr(f"La couche de PtRef n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		if not is_metric_crs(roads_layer.crs()) :
-			return False, self.tr(f"La couche de bande riveraine n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+			return False, self.tr(f"La couche de réseau routier n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		return True, ''
 
 
@@ -113,7 +113,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		step_min = float(self.parameterAsDouble(parameters, 'step_min', context))
 		use_agri = self.parameterAsBool(parameters, 'use_agri', context)
 		# Length of the transects and margin to use
-		TRANSECT_LENGTH = 16
+		TRANSECT_LENGTH = 15 # Needs to stay the minimal width desired for the mobility space
 		MARGIN = 2.0
 		# Verify the layers are created properly
 		for layer, name in [[rivnet_layer, "Réseau hydrographique"], [roads_layer, "Réseau routier"], [ptref_layer, "PtRef largeur"]] :
@@ -135,9 +135,7 @@ class IndiceF3(QgsProcessingAlgorithm):
 		# Pre-indexation of PtRef per segment (for faster searching)
 		model_feedback.pushInfo(self.tr('Indexation des PtRef par segment…'))
 		ptref_indexes_by_seg = build_ptref_spatial_indexes(ptref_layer, seg_id_field, width_field)
-		# Length of the transects (m) and margin to use
-		TRANSECT_LENGTH = 15 # Needs to stay the minimal with desired for the mobility space
-		MARGIN = 2.0
+
 
 		# Reclassify landUse
 		model_feedback.setProgressText(self.tr("Polygonisation et reclassification de l'utilisation du territoire..."))
@@ -149,48 +147,51 @@ class IndiceF3(QgsProcessingAlgorithm):
 		if model_feedback.isCanceled():
 			return {}
 
-		model_feedback.setProgressText(self.tr("Fusion des couches d'obstacles..."))
+		model_feedback.setProgressText(self.tr("Préparation des couches d'obstacles..."))
 		try :
-			roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
-			landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
-			# Convert roads (LineString) to polygons via buffer
-			# Choose a realistic width in meters to represent the blocking right-of-way.
-			# E.g., 20 m (10 m on each side). Adjust according to your data context.
+			# Roads: simplify WITHOUT dissolving to keep each road's own 'demi_emp'
+			roads_simpl = processing.run('native:simplifygeometries', {
+				'INPUT': roads_layer, 'METHOD': 0, 'TOLERANCE': 5.0, 'OUTPUT': 'memory:'
+			}, context=context)['OUTPUT']
 			roads_poly = processing.run("native:buffer", {
 				"INPUT": roads_simpl,
-				"DISTANCE": QgsProperty.fromField("demi_emp"),   # half width from side to sides
+				"DISTANCE": QgsProperty.fromField("demi_emp"),  # half right-of-way per road
 				"SEGMENTS": 5,
-				"END_CAP_STYLE": 1,              # Round=0, Flat=1, Square=2
+				"END_CAP_STYLE": 1,  # Flat
 				"JOIN_STYLE": 0,
 				"MITER_LIMIT": 2,
-				"DISSOLVE": True,                # important for reducing the number of parts
+				"DISSOLVE": False,   # Overlaps don't matter for a yes/no obstacle test
 				"OUTPUT": "memory:"
 			}, context=context)["OUTPUT"]
-			# ----- (B) Dissolve the polygonized land cover (already in polygons) -----
-			landuse_diss = processing.run("native:dissolve", {
-				"INPUT": landuse_simpl,
-				"SEPARATE_DISJOINT": False,
-				"FIELD": [],
+			if model_feedback.isCanceled():
+				return {}
+			# Land use: simplify the polygonized pixels (no dissolve needed)
+			landuse_simpl = processing.run('native:simplifygeometries', {
+				'INPUT': vectorised_landuse, 'METHOD': 0, 'TOLERANCE': 5.0, 'OUTPUT': 'memory:'
+			}, context=context)['OUTPUT']
+			if model_feedback.isCanceled():
+				return {}
+			# Merge roads + land use, repair, then split into small pieces
+			all_obstacles = processing.run("native:mergevectorlayers", {
+				"LAYERS": [roads_poly, landuse_simpl],
 				"OUTPUT": "memory:"
 			}, context=context)["OUTPUT"]
-			# ----- (C) Merge the two polygon layers (buffered roads + land use) -----
-			all_obstacles_poly = processing.run("native:mergevectorlayers", {
-				"LAYERS": [roads_poly, landuse_diss],
-				"OUTPUT": "memory:"
-			}, context=context)["OUTPUT"]
-			# ----- (D) Dissolve to obtain few features -----
-			obstacles_dissolved = processing.run("native:dissolve", {
-				"INPUT": all_obstacles_poly,
-				"SEPARATE_DISJOINT": False,
-				"FIELD": [],
-				"OUTPUT": "memory:"
-			}, context=context)["OUTPUT"]
+			obstacles_fixed = processing.run('native:fixgeometries', {
+				'INPUT': all_obstacles, 'METHOD': 0, 'OUTPUT': 'memory:'
+			}, context=context)['OUTPUT']
+			obstacles_subdivided = processing.run('native:subdivide', {
+				'INPUT': obstacles_fixed, 'MAX_NODES': 256, 'OUTPUT': 'memory:'
+			}, context=context)['OUTPUT']
 		except Exception as e :
-			model_feedback.reportError(self.tr(f"Erreur dans fusion des couches d'obstacles : {str(e)}"))
+			model_feedback.reportError(self.tr(f"Erreur dans la préparation des couches d'obstacles : {str(e)}"))
+			return {}
+		if model_feedback.isCanceled():
 			return {}
 
-		# Making spatial index of the obstacles
-		obstacle_indexes = QgsSpatialIndex(obstacles_dissolved.getFeatures())
+		# Spatial index of the obstacle pieces + cached geometries (built only once)
+		model_feedback.pushInfo(self.tr("Indexation spatiale des obstacles…"))
+		obst_index, obst_geoms = build_band_spatial_index(obstacles_subdivided)
+		obst_engines = {}  # fid -> prepared GEOS engine (filled lazily)
 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
@@ -225,44 +226,9 @@ class IndiceF3(QgsProcessingAlgorithm):
 					w_max = max_width_for_segment(ptref_idx_entry)  # 2 m if no PtRef
 					# 2) Adaptative clip radius (max offset + L + margin)
 					R = (w_max / 2.0) + TRANSECT_LENGTH + MARGIN
-					# 3) Adaptive buffer and simplified dissolved obstacles
-					segment_buffer = seg_geom.buffer(R, 8)
-					# Intersect the geometry of the obstacles polygon with the segment max width buffer collect the obstacles intersecting this BBOX
-					bbox = segment_buffer.boundingBox()
-					bbox_g = QgsRectangle(
-							bbox.xMinimum()-R, bbox.yMinimum()-R,
-							bbox.xMaximum()+R, bbox.yMaximum()+R
-					)
-					local_parts = []
-					candidate_ids = obstacle_indexes.intersects(bbox_g)
-					for fid in candidate_ids:
-						f = obstacles_dissolved.getFeature(fid)
-						g = f.geometry()
-						if g and not g.isEmpty():
-							# fast double check: bbox & intersects
-							if not g.boundingBox().intersects(bbox_g):
-								continue
-							if not g.intersects(segment_buffer):
-								continue
-							# Local clip (only useful portion)
-							c = g.intersection(segment_buffer)
-							if c and not c.isEmpty():
-								local_parts.append(c)
-					union_geom = QgsGeometry.unaryUnion(local_parts)
-					# If no local obstacle -> all free
-					if not local_parts or not union_geom or union_geom.isEmpty():
-						perc15=1.0
-						indiceF3 = computeF3(perc15)
-						segment.setAttributes(segment.attributes() + [perc15*100, indiceF3])
-						sink.addFeature(segment, QgsFeatureSink.FastInsert)
-						model_feedback.setProgress(int(100 * (current) / max(1, total_features)))
-						continue
-					# Make bounding box of the clipped obstacles polygon to verify if the transect intersects
-					engine_prepared, band_bbox = make_prepared_engine_and_bbox(union_geom)
-					# Verify if the obstacles union is empty (no obstacles around the segment)
-					if (engine_prepared is None):
-						# Nothing to intersect for this segment
-						perc15=1.0
+					# 3) Cheap check: no obstacle piece near the segment -> all free
+					if not obst_index.intersects(seg_geom.boundingBox().buffered(R)):
+						perc15 = 1.0
 						indiceF3 = computeF3(perc15)
 						segment.setAttributes(segment.attributes() + [perc15*100, indiceF3])
 						sink.addFeature(segment, QgsFeatureSink.FastInsert)
@@ -285,14 +251,11 @@ class IndiceF3(QgsProcessingAlgorithm):
 						# Transects left/right of length of TRANSECT_LENGTH 
 						left_line  = make_transect_line(center_pt, theta + math.pi/2.0, offset, TRANSECT_LENGTH)
 						right_line = make_transect_line(center_pt, theta - math.pi/2.0, offset, TRANSECT_LENGTH)
-						# Check the length of the transect intersection with obstacles, if no obstacles to intersect returns zero
-						left_int_len  = fast_intersection_status(left_line, union_geom, engine_prepared, band_bbox)
-						right_int_len = fast_intersection_status(right_line, union_geom, engine_prepared, band_bbox)
-						# Tests if there is an obstacle within 15m in both sides, if its not the case we skip the count of the transect
-						if (left_int_len == True) and (right_int_len == True):
-							continue
-						# 3) Counts the number of transects for which the intersect is within the width treshold (15m) (taking into account each sides)
-						count_15 += (1 if left_int_len == False else 0) + (1 if right_int_len == False else 0)
+						# Check if the transect intersects with obstacles, if no obstacles to intersect returns false
+						left_hit  = transect_hits_obstacle(left_line, obst_index, obst_geoms, obst_engines)
+						right_hit = transect_hits_obstacle(right_line, obst_index, obst_geoms, obst_engines)
+						# Counts the free sides (no obstacle within 15 m)
+						count_15 += (0 if left_hit else 1) + (0 if right_hit else 1)
 
 					# Pourcentages
 					den = 2.0 * float(n_pts) if n_pts else 1.0
@@ -472,14 +435,20 @@ def polygonize_landuse(use_agri, parameters, context, feedback):
 	return poly_layer
 
 
-def simplify_layer_once(layer, tol=2.0):
-	dissolved = processing.run('native:dissolve', {
-		'INPUT': layer, 'SEPARATE_DISJOINT': False, 'OUTPUT': 'memory:'
-	})['OUTPUT']
-	simplified = processing.run('native:simplifygeometries', {
-		'INPUT': dissolved, 'METHOD': 0, 'TOLERANCE': tol, 'OUTPUT': 'memory:'
-	})['OUTPUT']
-	return simplified
+def build_band_spatial_index(band_layer: QgsVectorLayer):
+	"""
+	Builds a spatial index of the riparian zone pieces and caches their geometries.
+	Returns (QgsSpatialIndex, {fid: QgsGeometry}).
+	"""
+	index = QgsSpatialIndex()
+	geoms = {}
+	for f in band_layer.getFeatures():
+		g = f.geometry()
+		if g is None or g.isEmpty():
+			continue
+		index.addFeature(f)
+		geoms[f.id()] = QgsGeometry(g)  # Cached copy: no getFeature() per segment
+	return index, geoms
 
 
 def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:
@@ -555,50 +524,40 @@ def max_width_for_segment(ptref_idx_entry) -> float:
 	return wmax
 
 
-def make_prepared_engine_and_bbox(geom: QgsGeometry):
+def transect_hits_obstacle(line: QgsGeometry, obst_index: QgsSpatialIndex, obst_geoms: dict, obst_engines: dict) -> bool:
 	"""
-	Returns (engine_prepared, bbox) for geom.
-	- engine_prepared: GEOS engine prepared for fast predicates (intersects, contains, etc.).
-	- bbox: axis-aligned bounding box (AABB) of geom for the broad-phase filter.
+	True if the transect touches at least one obstacle piece.
+	Stops at the first hit; a prepared GEOS engine is created once per piece (lazily).
 	"""
-	if (geom is None) or geom.isEmpty():
-		return None, None
-	engine = QgsGeometry.createGeometryEngine(geom.constGet())
-	engine.prepareGeometry()
-	bbox = geom.boundingBox()
-	return engine, bbox
+	line_c = line.constGet()
+	for fid in obst_index.intersects(line.boundingBox()):
+		eng = obst_engines.get(fid)
+		if eng is None:
+			g = obst_geoms.get(fid)
+			if g is None:
+				continue
+			eng = QgsGeometry.createGeometryEngine(g.constGet())
+			eng.prepareGeometry()
+			obst_engines[fid] = eng
+		if eng.intersects(line_c):
+			return True
+	return False
 
 
 def direction_angle_at_point_fast(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
 	"""
-	Fast-path: estimates the local tangent angle near pt_xy using
-	QgsGeometry.closestSegmentWithContext (C++ implementation).
-
-	Returns 0.0 on failure/degenerate cases, and is intentionally
-	conservative to let the robust fallback handle edge cases.
+	Fast-path: local tangent angle near pt_xy using closestSegmentWithContext (C++).
+	Returns 0.0 on failure so the robust fallback can take over.
 	"""
 	if (seg_geom is None) or seg_geom.isEmpty():
 		return 0.0
 	try:
-		center_g = QgsGeometry.fromPointXY(pt_xy)
-		res = seg_geom.closestSegmentWithContext(center_g)
-		# 'res' can vary by QGIS version. We want the two vertices (before/after).
-		if not res:
+		sqr_dist, _min_pt, after_vertex, _left_of = seg_geom.closestSegmentWithContext(pt_xy)
+		if sqr_dist < 0 or after_vertex <= 0:
 			return 0.0
-		# Known patterns include:
-		#   (closest_pt, after_vertex, before_vertex, sqr_dist)
-		#   (closest_pt, after_vertex, before_vertex, dist, left_of)
-		# We'll try to unpack tolerantly.
-		v_after, v_before = None, None
-		if len(res) >= 3:
-			# Typical indexing: 0:closest_pt, 1:after, 2:before
-			v_after = res[1]
-			v_before = res[2]
-		if v_after is None or v_before is None:
-			return 0.0
-		ax, ay = v_before.x(), v_before.y()
-		bx, by = v_after.x(), v_after.y()
-		dx, dy = (bx - ax), (by - ay)
+		p_after = seg_geom.vertexAt(after_vertex)
+		p_before = seg_geom.vertexAt(after_vertex - 1)
+		dx, dy = (p_after.x() - p_before.x()), (p_after.y() - p_before.y())
 		if dx == 0.0 and dy == 0.0:
 			return 0.0
 		return math.atan2(dy, dx)
@@ -728,26 +687,6 @@ def make_transect_line(center_pt: QgsPointXY, normal_angle: float, offset: float
 	end   = QgsPointXY(center_pt.x() + (offset + length_m) * math.cos(normal_angle),
 						center_pt.y() + (offset + length_m) * math.sin(normal_angle))
 	return QgsGeometry.fromPolylineXY([start, end])
-
-
-def fast_intersection_status(line: QgsGeometry, band_union: QgsGeometry, engine_prepared, band_bbox):
-	"""
-	Length of the intersection 'line ∩ band_union' with short circuits:
-	1) BBOX (very inexpensive): if no intersection of envelopes -> 0
-	2) Prepared predicate (accurate & fast): if no intersection -> 0
-	3) Overlay (expensive): only if we know there is a real intersection.
-	"""
-	if (line is None) or line.isEmpty() or (band_union is None) or band_union.isEmpty():
-		return False
-	# 1) Broad-phase: BBOX
-	if not line.boundingBox().intersects(band_bbox):
-		return False
-	# 2) Narrow-phase: exact predicate on prepared geometry
-	if not engine_prepared.intersects(line.constGet()):
-		return False
-	# 3) Overlay: we finally calculate the actual (costly) intersection
-	inter = line.intersection(band_union)
-	return True if (inter and not inter.isEmpty()) else False
 
 
 def computeF3(intersect_perc):
