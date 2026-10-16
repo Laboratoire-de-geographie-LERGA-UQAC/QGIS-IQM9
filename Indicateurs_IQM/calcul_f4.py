@@ -26,25 +26,18 @@
 
 
 import numpy as np
-import processing
 from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsField,
 	QgsProcessing,
 	QgsFeatureSink,
-	QgsPointXY,
-	QgsGeometry,
-	QgsRectangle,
-	QgsWkbTypes,
-	QgsSpatialIndex,
 	QgsUnitTypes,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterNumber,
 	QgsProcessingParameterString,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterFeatureSink
-  )
-
+	)
 
 
 class IndiceF4(QgsProcessingAlgorithm):
@@ -54,14 +47,12 @@ class IndiceF4(QgsProcessingAlgorithm):
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
 
 	def initAlgorithm(self, config=None):
-		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('ptref_widths', self.tr('PtRef largeur (CRHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None, optional=False))
 		self.addParameter(QgsProcessingParameterString('ptref_width_field', self.tr('Nom du champ de largeur dans PtRef'), defaultValue=self.DEFAULT_WIDTH_FIELD))
-		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
+		self.addParameter(QgsProcessingParameterVectorLayer('rivnet', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None, optional=False))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
-		self.addParameter(QgsProcessingParameterNumber('target_pts', self.tr('Nombre de points visés par segment'), type=QgsProcessingParameterNumber.Integer, defaultValue=50))
-		self.addParameter(QgsProcessingParameterNumber('step_min', self.tr('Longueur minimale entre les transects (m)'), type=QgsProcessingParameterNumber.Double, defaultValue=10))
+		self.addParameter(QgsProcessingParameterNumber('seuil_km', self.tr('Seuil de variation spécifique de largeur (fraction par km)'), type=QgsProcessingParameterNumber.Double, defaultValue=0.2, minValue=0.0))
 		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
-
 
 	def checkParameterValues(self, parameters, context):
 		# Check if the parameters are given properly
@@ -81,6 +72,8 @@ class IndiceF4(QgsProcessingAlgorithm):
 			return False, self.tr(f"La couche de réseau hydro n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
 		if not is_metric_crs(ptref_layer.crs()) :
 			return False, self.tr(f"La couche de PtRef n'est pas dans un CRS en mètres! Veuillez reprojeter la couche dans un CRS valide.")
+		if rivnet_layer.crs() != ptref_layer.crs():
+			return False, self.tr("Les couches de réseau hydro et de PtRef doivent être dans le même CRS! Veuillez reprojeter l'une des deux couches.")
 		return True, ''
 
 
@@ -91,15 +84,15 @@ class IndiceF4(QgsProcessingAlgorithm):
 		ptref_layer  = self.parameterAsVectorLayer(parameters, 'ptref_widths', context)
 		width_field  = self.parameterAsString(parameters, 'ptref_width_field', context)
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
-		target_pts = int(self.parameterAsDouble(parameters, 'target_pts', context))
-		step_min = float(self.parameterAsDouble(parameters, 'step_min', context))
+		seuil_km = float(self.parameterAsDouble(parameters, 'seuil_km', context))
 		# Verify the layers are created properly
 		for layer, name in [[rivnet_layer, "Réseau hydrographique"], [ptref_layer, "PtRef largeur"]] :
 			if layer is None or not layer.isValid() :
 				raise RuntimeError(self.tr(f"Couche {name} invalide."))
 		# Define Sink fields
 		sink_fields = source.fields()
-		sink_fields.append(QgsField("Pourc_var_long", QMetaType.Double, prec=2))
+		sink_fields.append(QgsField("Nb_PtRef", QMetaType.Int))
+		sink_fields.append(QgsField("Pourc_long_alt", QMetaType.Double, len=10, prec=2))
 		sink_fields.append(QgsField("Indice F4", QMetaType.Int))
 
 		# Define sink
@@ -112,60 +105,49 @@ class IndiceF4(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
-		# Pre-indexation of PtRef per segment (for faster searching)
-		model_feedback.pushInfo(self.tr('Indexation des PtRef par segment…'))
-		ptref_indexes_by_seg, ptref_global_index = build_ptref_spatial_indexes(ptref_layer, seg_id_field, width_field)
-
+		# Group PtRef by segment (only the PtRef of the UEA itself are used)
+		model_feedback.pushInfo(self.tr('Regroupement des PtRef par segment…'))
+		ptref_by_seg = group_ptref_by_segment(ptref_layer, seg_id_field)
+ 
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
 		model_feedback.pushInfo(self.tr(f"\t {total_features} features à traiter"))
-
+		nb_null = 0
+ 
 		for current, segment in enumerate(source.getFeatures()):
 			if model_feedback.isCanceled():
 				return {}
-			# Making geometry object of the river segment
 			seg_geom = segment.geometry()
-			seg_len = seg_geom.length()
 			sid = segment[seg_id_field]
-			# Adjusting the number of steps based on segment length
-			if seg_len <= 0: # If segment length is lesser or equal to zero
-				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale zéro mètre ! Veuillez vérifier sa validité Indice F4 mis à 3."))
-				segment.setAttributes(segment.attributes() + [0.0, 3])
-				sink.addFeature(segment, QgsFeatureSink.FastInsert)
-				model_feedback.setProgress(int(100 * (current) / max(1, total_features)))
-				continue
+			seg_len = seg_geom.length() if seg_geom and not seg_geom.isEmpty() else 0.0
+ 
+			nb_ptref = 0
+			pourc_alt = None
+			indiceF4 = None
+ 
+			if seg_len <= 0:
+				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur nulle ou invalide ! Indice F4 mis à NULL."))
 			else:
-				if seg_len <= 2 :
-					model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
-				# Calculate an appropriate step for the transect points
-				step_m_local = max(step_min, seg_len / target_pts) # Makes bigger steps for long segments while keeping a set minimal resolution for smaller segments
-				# Get points along segment based on given step_m_local for the segment
-				pts = safe_points_along_line(seg_geom, step_m_local)
-			# Finding the nearest PtRef width
-			ptref_idx_entry = ptref_indexes_by_seg.get(sid)
-			if not ptref_idx_entry: # Fallback: if no point for this segment then use the global index
-				ptref_idx_entry = ptref_global_index
-			widths = []
-			for center_pt in pts :
-				w = nearest_width_value_indexed(center_pt, ptref_idx_entry)
-				widths.append(w)
-			# Calculate relative variations
-			div_distance = seg_len / len(pts)
-			ratio = natural_width_ratio(widths, div_distance)
-			# Compute F4
-			indiceF4 = computeF4(ratio)
-			#Write Index
-			segment.setAttributes(segment.attributes() + [ratio, indiceF4])
-			# Add a feature to sink
+				# Width profile along the UEA (position in m, width), ordered upstream -> downstream
+				profile = ptref_profile(seg_geom, ptref_by_seg.get(sid, []), width_field)
+				nb_ptref = len(profile)
+				ratio = altered_length_ratio(profile, seuil_km)
+				if ratio is not None:
+					pourc_alt = round(100.0 * ratio, 2)
+					indiceF4 = computeF4(ratio)
+ 
+			if indiceF4 is None:
+				nb_null += 1
+ 
+			# Write attributes (None -> NULL)
+			segment.setAttributes(segment.attributes() + [nb_ptref, pourc_alt, indiceF4])
 			sink.addFeature(segment, QgsFeatureSink.FastInsert)
-
+ 
 			# Increments the progress bar
-			if total_features != 0:
-				progress = int(100*(current/total_features))
-			else:
-				progress = 0
-			model_feedback.setProgress(progress)
-
+			model_feedback.setProgress(int(100 * (current + 1) / max(1, total_features)))
+ 
+		if nb_null:
+			model_feedback.pushInfo(self.tr(f"\t {nb_null} UEA avec moins de 2 PtRef valides (ou de longueur nulle) : Indice F4 mis à NULL."))
 		# Ending message
 		model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
@@ -191,7 +173,9 @@ class IndiceF4(QgsProcessingAlgorithm):
 
 	def shortHelpString(self):
 		return self.tr(
-			"Calcule de l'indice F4 afin d'évaluer l’hétérogénéité naturelle des unités géomorphologiques liée à ces processus présents dans le lit mineur en mesurant la continuité dans la variabilité naturelle de la largeur du lit mineur.\n L'outil compare la largeur de deux points de référence ainsi que la distance entre eux. Une augmentation de plus de 10% indique une discontinuité dans la variation longitudinale naturelle.\n" \
+			"Calcule de l'indice F4 afin d'évaluer l’hétérogénéité naturelle des unités géomorphologiques liée à ces processus présents dans le lit mineur en mesurant la continuité dans la variabilité naturelle de la largeur du lit mineur.\n" \
+			"Les points de référence (PtRef) de chaque UEA sont ordonnés de l'amont vers l'aval. Pour chaque paire de PtRef consécutifs, la variation relative de largeur est ramenée au kilomètre à l'aide de la distance réelle entre les deux points. Un intervalle est jugé anormal si la largeur diminue vers l'aval ou si son augmentation dépasse le seuil donné. L'indice est déterminé par la proportion de la longueur de l'UEA couverte par des intervalles anormaux : 0 = altération sur 10 % ou moins de la longueur; 1 = 10 à 34 %; 2 = 34 à 67 %; 3 = plus de 67 %.\n" \
+			"Les UEA ayant moins de deux PtRef valides ne peuvent pas être évalués : l'indice F4 y est mis à NULL.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"PtRef largeur : Vectoriel (points)\n" \
@@ -199,178 +183,99 @@ class IndiceF4(QgsProcessingAlgorithm):
 			" Champ PtRef largeur : Chaine de caractère ('Largeur_mod' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant la largeur du chenal. Source des données : Couche PtRef largeur.\n" \
 			"Réseau hydrographique : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
+			"-> Réseau hydrographique segmenté en unités écologiques aquatiques (UEA) pour le bassin versant donné. Les lignes doivent être orientées de l'amont vers l'aval. Source des données : MELCCFP. Cadre de référence hydrologique du Québec (CRHQ), [Jeu de données], dans Données Québec.\n" \
 			" Champ ID segment : Chaine de caractère ('Id_UEA' par défaut)\n" \
 			"-> Nom du champ (attribut) identifiant le segment de rivière. NOTE : Doit se retrouver à la fois dans la table attributaire de la couche de réseau hydro et de la couche de PtRef. Source des données : Couche réseau hydrographique.\n" \
-			" Nbr de points visés : nombre entier (int; 50 par défaut)\n" \
-			"-> Nombre de points de transects visés par segment. Permet de meilleures performances pour réduire le nombre de transects pour les longs segments. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
-			" Longueur min entre transects (m) : double (10 m par défaut)\n" \
-			"-> La distance minimale à avoir entre les transects (surtout utilisé pour les petits segments à la place d'utiliser le nombre de points visés). Tous les segments de longueur inférieure à long min intertransect*nbr de points visé, utiliserons cette distance entre les transects. L'augmenter augmentera la précision du calcul, mais ralentira l'exécution, en particulier pour les grands bassins versants.\n" \
+			" Seuil de variation spécifique : double (0,2 par défaut)\n" \
+			"-> Augmentation relative maximale de la largeur par kilomètre considérée comme naturelle (0,2 = 20 % par km).\n" \
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique du bassin versant avec le score de l'indice F4 calculé pour chaque UEA."
+			"-> Réseau hydrographique du bassin versant avec, pour chaque UEA, le nombre de PtRef valides (Nb_PtRef), le pourcentage de longueur altérée (Pourc_long_alt) et le score de l'indice F4 (NULL si non évaluable)."
 		)
 
 
 def is_metric_crs(crs):
 	# True if the distance unit of the CRS is the meter
 	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
-
-
-def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str):
-	"""
-	Builds spatial indexes by segment.
-	Returns a dict: {sid: {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': width_field}}
-	"""
+ 
+ 
+def group_ptref_by_segment(ptref_layer, seg_id_field: str) -> dict:
+	"""Returns {sid: [QgsFeature, ...]} for all PtRef of the layer."""
 	seg_to_features = {}
-	global_feats = []
-
 	for pf in ptref_layer.getFeatures():
-		sid = pf[seg_id_field]
-		seg_to_features.setdefault(sid, []).append(pf)
-		global_feats.append(pf)
-	# Build per-segment indexes
-	seg_to_index = {}
-	for sid, feats in seg_to_features.items():
-		idx = QgsSpatialIndex()
-		id_to_feat = {}
-		for f in feats:
-			idx.addFeature(f)
-			id_to_feat[f.id()] = f
-		seg_to_index[sid] = {
-			'index': idx, 
-			'features': feats,
-			'id_to_feat': id_to_feat,
-			'width_field': width_field}
-	# Build global spatial index (fallback)
-	global_idx = QgsSpatialIndex()
-	id_to_feat = {}
-	for f in global_feats:
-		global_idx.addFeature(f)
-		id_to_feat[f.id()] = f
-	return seg_to_index, {'index': global_idx, 'features': global_feats, 'id_to_feat': id_to_feat, 'width_field': width_field}
-
-
-def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:
+		seg_to_features.setdefault(pf[seg_id_field], []).append(pf)
+	return seg_to_features
+ 
+ 
+def ptref_profile(seg_geom, ptref_feats, width_field: str) -> list:
 	"""
-	Robustly sample points along a (multi)line geometry every step_m meters.
-	- Clamps interpolation distances to [0, length - eps] to avoid null geometries.
-	- Skips empty/invalid interp results defensively.
-	- Falls back to a single midpoint when the segment is shorter than the step.
+	Builds the width profile of a UEA.
+	Each PtRef is projected on the line (lineLocatePoint) to get its position
+	in meters from the start of the line (upstream).
+	Returns [(position_m, width)] sorted upstream -> downstream.
+	PtRef with an invalid, null or non-positive width are ignored.
 	"""
-	pts = []
-	if seg_geom is None or seg_geom.isEmpty():
-		return pts
-	seg_len = seg_geom.length()
-	if not np.isfinite(seg_len) or seg_len <= 0.0:
-		return pts
-	# Tiny epsilon to stay strictly inside [0, length)
-	eps = max(1e-6, min(0.001, 1e-3 * seg_len))
-	def _interp_point_at(dist_m: float):
-		"""Interpolate and safely convert to QgsPointXY if a point geometry is returned."""
-		g = seg_geom.interpolate(dist_m)
-		if not g or g.isEmpty() or g.type() != QgsWkbTypes.PointGeometry:
-			return None
-		# Handle Point vs MultiPoint
-		try:
-			p = g.asPoint()
-		except Exception:
-			mp = g.asMultiPoint()
-			if not mp:
-				return None
-			p = mp[0]
-		return QgsPointXY(p.x(), p.y())
-	# If the line is shorter than the step -> single midpoint (clamped)
-	if seg_len < step_m:
-		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
-		p = _interp_point_at(mid)
-		return [p] if p is not None else []
-	# Regular sampling
-	d = 0.0
-	while d < seg_len:
-		# Clamp d to [0, seg_len - eps] to avoid "null geometry" from interpolate()
-		dd = min(seg_len - eps, max(0.0, d))
-		p = _interp_point_at(dd)
-		if p is not None:
-			pts.append(p)
-		d += step_m
-	# Safety: if nothing has been collected (rare degenerate cases), try the midpoint
-	if not pts:
-		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
-		p = _interp_point_at(mid)
-		if p is not None:
-			pts.append(p)
-
-	return pts
-
-
-def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> float or None:
-	"""
-	Find the closest width via spatial index for this segment.
-	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': 'Largeur_mod'}
-	"""
-	if not seg_ptref_idx_entry:
-		return None
-	idx = seg_ptref_idx_entry['index']
-	id_to_feat = seg_ptref_idx_entry['id_to_feat']
-	width_field = seg_ptref_idx_entry['width_field']
-	# Search box (~100 m around the point) to limit candidates
-	# (you can adjust the radius according to the density of PtRef)
-	r = 100
-	rect = QgsRectangle(center_pt.x() - r, center_pt.y() - r, center_pt.x() + r, center_pt.y() + r)
-	candidate_ids = idx.intersects(rect)
-	best_w = None
-	best_d = float('inf')
-	center_g = QgsGeometry.fromPointXY(center_pt)
-	# if there are no candidates in the bbox, we try them all (rare)
-	if not candidate_ids:
-		candidate_ids = id_to_feat.keys()
-	# Retrieve each candidate feature by FID from the precomputed id_to_feat dict
-	# (built once per segment in build_ptref_spatial_indexes, O(1) lookup)
-	for fid in candidate_ids:
-		pf = id_to_feat.get(fid)
-		if pf is None:
-			continue
+	if not ptref_feats:
+		return []
+	line = seg_geom
+	if seg_geom.isMultipart():
+		merged = seg_geom.mergeLines()
+		if merged and not merged.isEmpty():
+			line = merged
+	profile = []
+	for pf in ptref_feats:
 		g = pf.geometry()
 		if not g or g.isEmpty():
 			continue
-		d = g.distance(center_g)
-		# Read width
 		try:
-			val = pf[width_field]
-			w = float(val) if val is not None else None
-		except Exception:
-			w = None
-		if w is not None and d < best_d:
-			best_d, best_w = d, w
-	return best_w
-
-
-
-def natural_width_ratio(widths, div_distance):
-	# 1) Cas impossible à traiter → ratio = 1 (100% naturel)
-	if len(widths) < 2:
-		return 1.0
-	# 2) Calcul des variations
-	difs_percent = (np.array(widths[1:]) - np.array(widths[:-1])) / np.array(widths[1:])
-	# 3) Cas limite : pas de variations → ratio = 1
-	if difs_percent.size == 0:
-		return 1.0
-	# 4) Variation spécifique
-	difs_specific = difs_percent * 1000 / div_distance
-	# 5) Variations anormales
-	unnatural_widths = np.where((difs_specific < 0) | (difs_specific > 0.2))[0].size
-	# 6) Ratio final
-	return 1 - (unnatural_widths / difs_percent.size)
-
-
+			w = float(pf[width_field])
+		except (TypeError, ValueError):
+			continue
+		if not np.isfinite(w) or w <= 0:
+			continue
+		pos = line.lineLocatePoint(g)
+		if pos is None or pos < 0:
+			continue
+		profile.append((pos, w))
+	profile.sort(key=lambda p: p[0])
+	return profile
+ 
+ 
+def altered_length_ratio(profile: list, seuil_km: float):
+	"""
+	Proportion (0-1) of the length covered by the PtRef that shows an abnormal
+	width variation. Returns None if fewer than 2 PtRef (not assessable).
+	For each pair of consecutive PtRef :
+		var_km = (w_aval - w_amont) / w_amont * 1000 / distance_m
+	The interval is abnormal if var_km < 0 (narrowing downstream)
+	or var_km > seuil_km.
+	"""
+	if len(profile) < 2:
+		return None
+	pos = np.array([p for p, _ in profile], dtype=float)
+	w = np.array([v for _, v in profile], dtype=float)
+	dist = np.diff(pos)
+	ok = dist > 0	# ignores PtRef located at the same position
+	if not np.any(ok):
+		return None
+	dist = dist[ok]
+	w_up = w[:-1][ok]
+	w_down = w[1:][ok]
+	var_km = (w_down - w_up) / w_up * 1000.0 / dist
+	abnormal = (var_km < 0) | (var_km > seuil_km)
+	return float(dist[abnormal].sum() / dist.sum())
+ 
+ 
 def computeF4(ratio):
-	# Compute F4
-	if (ratio >= 0.9):
+	# Compute F4 from the proportion of altered length (previous weighting)
+	if ratio is None:
+		return None
+	natural = 1.0 - ratio
+	if natural >= 0.90: #   naturel >= 90 %  (altéré <= 10 %)
 		return 0
-	if (ratio >= 0.66):
+	if natural >= 0.66: #   naturel >= 66 %  (altéré 10 à 34 %) 
 		return 1
-	if (ratio >= 0.33):
+	if natural >= 0.33: #   naturel >= 33 %  (altéré 34 à 67 %)
 		return 2
-	return 3
+	return 3            #   naturel <  33 %  (altéré > 67 %) 
