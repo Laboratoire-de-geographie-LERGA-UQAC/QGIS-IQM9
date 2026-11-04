@@ -335,12 +335,10 @@ class compute_iqm(QgsProcessingAlgorithm):
 		try :
 			alg_params = {
 				'ptref_widths': parameters['ptref_widths'],
-				'ptref_widths': parameters['ptref_widths'],
 				'ptref_width_field': width_field,  # default : Largeur_mod
 				'rivnet': outputs['IndiceF3']['OUTPUT'],
 				'segment_id_field': seg_id_field, # default : Id_UEA
-				'target_pts': 50, # default : 50
-				'step_min': 10, # default : 10m
+				'seuil_km': 0.2, # default : 0.2
 				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
 			}
 			outputs['IndiceF4'] = processing.run('script:indicef4', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -377,16 +375,94 @@ class compute_iqm(QgsProcessingAlgorithm):
 
 		feedback.setProgressText(self.tr(f"Calcul de l'IQM total des segments..."))
 
-		# Field calculator for total IQM calculation of each segments
+		# Maximum scores for each index
+		# Theoretical maximum score is 40 if all indeces are taken into account (penalties don't count for the max score)
+		#    Indicators of human-induced alteration
+		SCORE_MAX_A1 = 5
+		SCORE_MAX_A2 = 4
+		SCORE_MAX_A3 = 4
+		SCORE_MAX_A4 = 6
+		#    Hydrogeomorphological function indicators
+		SCORE_MAX_F1 = 4
+		SCORE_MAX_F2 = 5
+		SCORE_MAX_F3 = 5
+		SCORE_MAX_F4 = 3
+		SCORE_MAX_F5 = 4
+
+		# List of index fields. A NULL value indicates that the index could not be calculated for the segment
+		index_fields = [['Indice A1', SCORE_MAX_A1], ['Indice A2', SCORE_MAX_A2], ['Indice A3', SCORE_MAX_A3], ['Indice A4', SCORE_MAX_A4], ['Indice F1', SCORE_MAX_F1], ['Indice F2', SCORE_MAX_F2], ['Indice F3', SCORE_MAX_F3], ['Indice F4', SCORE_MAX_F4], ['Indice F5', SCORE_MAX_F5]]
+		# NULL-tolerant expressions
+		count_expr = ' + '.join([f'if("{f[0]}" IS NULL, 0, 1)' for f in index_fields]) # for the number of indeces that were computed for the segment
+		total_score_expr = ' + '.join([f'if("{f[0]}" IS NULL, 0, "{f[0]}")' for f in index_fields]) # sum of non-null indices for the segment
+		max_score_expr = ' + '.join([f'if("{f[0]}" IS NULL, 0, {f[1]})' for f in index_fields]) # max score taken into account 
+
+		# Step 1 : count the non-null indices for each segment
 		start_time = time.perf_counter()
 		try :
 			alg_params = {
 				'FIELD_LENGTH': 2,
+				'FIELD_NAME': 'Nb_indices',
+				'FIELD_PRECISION': 0,
+				'FIELD_TYPE': 1,  # Integer (32 bit)
+				'FORMULA': count_expr,
+				'INPUT': outputs['IndiceF5']['OUTPUT'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['NbIndices'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le décompte des indices non nuls : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "décompte indices", feedback)
+		if feedback.isCanceled():
+			return {}
+
+		# Step 2 : count the total score for each segment
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'FIELD_LENGTH': 2,
+				'FIELD_NAME': 'Score_total',
+				'FIELD_PRECISION': 0,
+				'FIELD_TYPE': 1,  # Integer (32 bit)
+				'FORMULA': total_score_expr,
+				'INPUT': outputs['NbIndices']['OUTPUT'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['ScoreTot'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul du score total : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul score total", feedback)
+		if feedback.isCanceled():
+			return {}
+
+		# Step 3 : count the max score for each segment
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'FIELD_LENGTH': 2,
+				'FIELD_NAME': 'Score_max',
+				'FIELD_PRECISION': 0,
+				'FIELD_TYPE': 1,  # Integer (32 bit)
+				'FORMULA': max_score_expr,
+				'INPUT': outputs['ScoreTot']['OUTPUT'],
+				'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+			}
+			outputs['ScoreMax'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
+		except Exception as e :
+			feedback.reportError(self.tr(f"Erreur dans le calcul du score max : {str(e)}"))
+		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul score max", feedback)
+		if feedback.isCanceled():
+			return {}
+
+		# Step 4 : total IQM for each segment (NULL treated as "no contribution"; NULL result if no index is available)
+		start_time = time.perf_counter()
+		try :
+			alg_params = {
+				'FIELD_LENGTH': 10,
 				'FIELD_NAME': 'Score IQM9',
 				'FIELD_PRECISION': 2,
 				'FIELD_TYPE': 0,  # Decimal (double)
-				'FORMULA': '1 - (array_sum(array( "Indice A1",  "Indice A2" ,  "Indice A3" ,  "Indice A4" ,  "Indice F1" ,  "Indice F2" ,  "Indice F3" ,  "Indice F4" ,  "Indice F5"))) / 40', # for each river segment : IQM = 1 - (total score/max score)
-				'INPUT': outputs['IndiceF5']['OUTPUT'],
+				'FORMULA': f'if("Nb_indices" = 0, NULL, 1 - ("Score_total" / "Score_max"))', # for each river segment : IQM = 1 - (total score/max score)
+				'INPUT': outputs['ScoreMax']['OUTPUT'],
 				'OUTPUT': parameters['Iqm']
 			}
 			outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
@@ -447,7 +523,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique du bassin versant avec les scores de chaque indice de l'IQM9* calculés pour chaque UEA."
+			"-> Réseau hydrographique du bassin versant avec  le nombre d'indices utilisés pour la calcul de l'IQM, le score total des indices, le score max des indices ainsi que les scores de chaque indice de l'IQM9* calculés pour chaque UEA."
 		)
 
 
