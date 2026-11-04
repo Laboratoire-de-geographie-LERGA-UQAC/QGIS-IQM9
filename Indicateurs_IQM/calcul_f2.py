@@ -24,7 +24,6 @@
 *********************************************************************************
 """
 
-import sys
 import numpy as np
 import processing
 import math
@@ -32,7 +31,6 @@ import math
 from qgis.PyQt.QtCore import QMetaType, QCoreApplication
 from qgis.core import (
 	QgsProcessing,
-	QgsRectangle,
 	QgsGeometry,
 	QgsPointXY,
 	QgsProperty,
@@ -41,7 +39,7 @@ from qgis.core import (
 	QgsUnitTypes,
 	QgsProcessingParameterNumber,
 	QgsFeatureSink,
-	QgsSpatialIndex,
+	QgsFeatureRequest,
 	QgsVectorLayer,
 	QgsProcessingParameterString,
 	QgsProcessingParameterBoolean,
@@ -56,6 +54,8 @@ class IndiceF2(QgsProcessingAlgorithm):
 	OUTPUT = "OUTPUT"
 	DEFAULT_WIDTH_FIELD = 'Largeur_mod'
 	DEFAULT_SEG_ID_FIELD = 'Id_UEA'
+	# Length of the transects
+	TRANSECT_LENGTH = 50.0
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterVectorLayer("roads", self.tr("Réseau routier (OSM)"),  types=[QgsProcessing.TypeVectorLine], defaultValue=None))
@@ -126,14 +126,31 @@ class IndiceF2(QgsProcessingAlgorithm):
 			source.sourceCrs()
 		)
 
-		# Pre-indexation of PtRef per segment (for faster searching)
-		model_feedback.setProgressText(self.tr('Indexation des PtRef par segment…'))
-		ptref_indexes_by_seg = build_ptref_spatial_indexes(ptref_layer, seg_id_field, width_field)
+		# Group PtRef by segment (projected on each UEA line later)
+		model_feedback.setProgressText(self.tr('Regroupement des PtRef par segment...'))
+		#ptref_by_seg = group_ptref_by_segment(ptref_layer, seg_id_field)
+		ptref_by_seg = group_ptref_by_segment(ptref_layer, seg_id_field, width_field)
 
 		# Reclassify landUse
 		model_feedback.setProgressText(self.tr("Polygonisation et reclassification de l'utilisation du territoire..."))
+		# Zone of interest around the river network: transects never go further than
+		# half the channel width + TRANSECT_LENGTH from the centerline (20 m safety margin)
+		max_w = max_ptref_width(ptref_by_seg)
+		zone_m = min(500.0, self.TRANSECT_LENGTH + max_w / 2.0 + 20.0)
+		model_feedback.pushInfo(self.tr(f"Zone d'intérêt : buffer de {zone_m:.0f} m (largeur max du réseau actuel) autour du réseau hydrographique"))
+		zone = processing.run("native:buffer", {
+			'INPUT' : parameters['rivnet'],
+			'DISTANCE' : zone_m,
+			'SEGMENTS' : 5,
+			'END_CAP_STYLE' : 0,
+			'JOIN_STYLE' : 0,
+			'MITER_LIMIT' : 2,
+			'DISSOLVE' : True,
+			'OUTPUT' : 'TEMPORARY_OUTPUT'
+		}, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
+
 		try :
-			vectorised_landuse = polygonize_landuse(use_agri, parameters, context, feedback=model_feedback)
+			vectorised_landuse = polygonize_landuse(use_agri, parameters, context, feedback=model_feedback, zone=zone)
 		except Exception as e :
 			model_feedback.reportError(self.tr(f"Erreur dans polygonize_landuse : {str(e)}"))
 			return {}
@@ -143,46 +160,35 @@ class IndiceF2(QgsProcessingAlgorithm):
 		# Making obstacle layers into one
 		model_feedback.setProgressText(self.tr("Fusion des couches d'obstacles..."))
 		try :
-			roads_simpl = simplify_layer_once(roads_layer, tol=5.0)
-			landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0)
 			# ----- (A) Convert roads (LineString) to polygons via buffer -----
-			# Choose a realistic width in meters to represent the blocking right-of-way.
-			# E.g., 20 m (10 m on each side). Adjust according to your data context.
 			roads_poly = processing.run("native:buffer", {
-				"INPUT": roads_simpl,
+				"INPUT": roads_layer,
 				"DISTANCE": QgsProperty.fromField("demi_emp"),   # half width from side to sides
 				"SEGMENTS": 5,
 				"END_CAP_STYLE": 1,              # Round=0, Flat=1, Square=2
 				"JOIN_STYLE": 0,
 				"MITER_LIMIT": 2,
-				"DISSOLVE": True,                # important for reducing the number of parts
+				"DISSOLVE": False,
 				"OUTPUT": "memory:"
 			}, context=context)["OUTPUT"]
-			# ----- (B) Dissolve the polygonized land cover (already in polygons) -----
-			landuse_diss = processing.run("native:dissolve", {
-				"INPUT": landuse_simpl,
-				"SEPARATE_DISJOINT": False,
-				"FIELD": [],
-				"OUTPUT": "memory:"
-			}, context=context)["OUTPUT"]
-			# ----- (C) Merge the two polygon layers (buffered roads + land use) -----
+			# ----- (B) Merge the two polygon layers (buffered roads + land use) -----
+			landuse_simpl = simplify_layer_once(vectorised_landuse, tol=5.0, dissolve=False)
 			all_obstacles_poly = processing.run("native:mergevectorlayers", {
-				"LAYERS": [roads_poly, landuse_diss],
+				"LAYERS": [roads_poly, landuse_simpl],
 				"OUTPUT": "memory:"
 			}, context=context)["OUTPUT"]
-			# ----- (D) Dissolve to obtain few features -----
+			# ----- (C) Dissolve the merged obstacles (already in polygons) -----
 			obstacles_dissolved = processing.run("native:dissolve", {
 				"INPUT": all_obstacles_poly,
 				"SEPARATE_DISJOINT": False,
 				"FIELD": [],
 				"OUTPUT": "memory:"
 			}, context=context)["OUTPUT"]
-			# ----- (E) Building the unified geometry (there should be very little left after the dissolve) and a prepared GEOS engine -----
-			union_parts = [f.geometry() for f in obstacles_dissolved.getFeatures()]
-			if union_parts:
-				global_obstacles_union = QgsGeometry.unaryUnion(union_parts)
-			else:
-				global_obstacles_union = None
+			# ----- (D) Building the unified geometry -----
+			global_obstacles_union = None
+			for f in obstacles_dissolved.getFeatures():
+				global_obstacles_union = f.geometry()
+				break
 		except Exception as e :
 			model_feedback.reportError(self.tr(f"Erreur dans fusion des couches d'obstacles : {str(e)}"))
 			return {}
@@ -198,6 +204,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 		# Gets the number of features to iterate over for the progress bar
 		total_features = source.featureCount()
 		model_feedback.pushInfo(self.tr(f"{total_features} features (segments) à traiter"))
+		nb_null = 0
 
 		# Iteration over all river network features
 		model_feedback.setProgressText(self.tr('Itération sur les segments du réseau...'))
@@ -210,32 +217,34 @@ class IndiceF2(QgsProcessingAlgorithm):
 			# Verify length of segment
 			if seg_len <= 2 :
 				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur inférieure ou égale à deux mètres ! Veuillez vérifier si l'UEA est un artéfact de prétraitement."))
+			line_geom = merged_line(seg_geom)
 			# Calculate an appropriate step for the transect points
 			step_m_local = max(step_min, seg_len / target_pts) # Makes bigger steps for long segments while keeping a set minimal resolution for smaller segments
+
 			# Get points along segment based on given step_m_local for the segment
-			center_pts = safe_points_along_line(seg_geom, step_m_local)
+			dists, px, py, theta = sample_line(line_geom, step_m_local)
+			# Width profile of the UEA, then width of the nearest PtRef along the line for each transect point
+			ppos, pwidth = ptref_profile(line_geom, ptref_by_seg.get(sid, []))
+			widths = widths_at_distances(dists, ppos, pwidth)
+			# Half-width; 1 m (2 m channel) when no valid PtRef (NaN) or width <= 0
+			offsets = np.where(widths > 0, widths / 2.0, 1.0)
 			# Making the transects on both sides of the stream
-			# Length of the transects
-			TRANSECT_LENGTH = 50.0
-			left_lines  = []
-			right_lines = []
-			# Get the PtRef for the segment
-			ptref_idx_entry = ptref_indexes_by_seg.get(sid)
-			for pt in center_pts:
-				# Find the nearest PtRef to the transect pt to get the width of the channel otherwise set the width to 2 m
-				w = nearest_width_value_indexed(pt, ptref_idx_entry)
-				offset = (float(w) / 2.0) if (w and w > 0) else 2/2
-				pt_xy = QgsPointXY(pt.x(), pt.y())
-				theta = direction_angle_at_point_fast(seg_geom, pt_xy)
-				if theta == 0.0:
-					theta = direction_angle_at_point(seg_geom, pt_xy)
-				left_lines.append(make_transect_line(pt_xy,  theta + math.pi/2.0, offset, TRANSECT_LENGTH))
-				right_lines.append(make_transect_line(pt_xy, theta - math.pi/2.0, offset, TRANSECT_LENGTH))
-			# Getting the distance (width) unobstructed
-			transect_list = left_lines + right_lines
-			median_unrestricted_distance = get_median_first_obstacle_distance(transect_list, prepared_engine, global_obstacles_union, no_hit_value=51.0, max_probe=TRANSECT_LENGTH)
-			# Determine the IQM Score
-			indiceF2 = computeF2(median_unrestricted_distance)
+			transect_list = make_transects(px, py, theta, offsets, self.TRANSECT_LENGTH)
+
+			median_unrestricted_distance = None
+			indiceF2 = None
+			# If no transect pts are given for the segment the value for the index is Null
+			if len(widths) == 0 :
+				model_feedback.pushInfo(self.tr(f"ATTENTION : Le segment ({seg_id_field} : {sid}) est de longueur nulle ou invalide et ne comporte pas de transects ! Indice F2 mis à NULL."))
+			else :
+				# Getting the distance (width) unobstructed
+				median_unrestricted_distance = get_median_first_obstacle_distance(transect_list, prepared_engine, global_obstacles_union, no_hit_value=51.0, max_probe=self.TRANSECT_LENGTH)
+				# Determine the IQM Score
+				indiceF2 = computeF2(median_unrestricted_distance)
+
+			if indiceF2 is None:
+				nb_null += 1
+
 			# Write score to sink
 			segment.setAttributes(
 				segment.attributes() + [median_unrestricted_distance, indiceF2]
@@ -249,6 +258,8 @@ class IndiceF2(QgsProcessingAlgorithm):
 				progress = 0
 			model_feedback.setProgress(progress)
 
+		if nb_null:
+			model_feedback.pushInfo(self.tr(f"\t {nb_null} UEA de longueur nulle) : Indice F2 mis à NULL."))
 		# Ending message
 		model_feedback.setProgressText(self.tr('\tProcessus terminé !'))
 
@@ -307,48 +318,76 @@ def is_metric_crs(crs):
 	return crs.mapUnits() == QgsUnitTypes.DistanceMeters
 
 
-def build_ptref_spatial_indexes(ptref_layer, seg_id_field: str, width_field: str):
+def group_ptref_by_segment(ptref_layer, seg_id_field: str, width_field: str) -> dict:
+	"""Returns {sid: [(QgsGeometry, width or None), ...]}; reads only the 2 needed fields."""
+	request = QgsFeatureRequest().setSubsetOfAttributes([seg_id_field, width_field], ptref_layer.fields())
+	seg_to_items = {}
+	for pf in ptref_layer.getFeatures(request):
+		g = pf.geometry()
+		if not g or g.isEmpty():
+			continue
+		try:
+			w = float(pf[width_field])
+		except (TypeError, ValueError):
+			w = None	# NULL / unreadable : ignored
+		seg_to_items.setdefault(pf[seg_id_field], []).append((g, w))
+	return seg_to_items
+
+
+def merged_line(seg_geom: QgsGeometry) -> QgsGeometry:
+	"""Single-part line when possible, so that distances along the line are unambiguous."""
+	if seg_geom is not None and seg_geom.isMultipart():
+		merged = seg_geom.mergeLines()
+		if merged and not merged.isEmpty():
+			return merged
+	return seg_geom
+
+
+def ptref_profile(line: QgsGeometry, ptref_items: list):
 	"""
-	Builds spatial indexes by segment.
-	Returns a dict: {sid: {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': width_field}}
+	Projects each PtRef on the line (lineLocatePoint) -> position in m from the line start.
+	Returns (positions, widths) as numpy arrays sorted by position.
+	Widths <= 0 / NaN are kept: the main loop turns them into the 1 m half-width fallback.
 	"""
-	seg_to_features = {}
-	for pf in ptref_layer.getFeatures():
-		sid = pf[seg_id_field]
-		seg_to_features.setdefault(sid, []).append(pf)
-
-	seg_to_index = {}
-	for sid, feats in seg_to_features.items():
-		idx = QgsSpatialIndex()
-		id_to_feat = {}
-		for f in feats:
-			idx.addFeature(f)
-			id_to_feat[f.id()] = f
-		seg_to_index[sid] = {
-			'index': idx, 
-			'features': feats,
-			'id_to_feat': id_to_feat,
-			'width_field': width_field}
-	return seg_to_index
+	pos_list, w_list = [], []
+	for g, w in ptref_items:
+		if w is None:
+			continue
+		pos = line.lineLocatePoint(g)
+		if pos is None or pos < 0:
+			continue
+		pos_list.append(pos)
+		w_list.append(w)
+	pos = np.array(pos_list, dtype=float)
+	w = np.array(w_list, dtype=float)
+	order = np.argsort(pos)
+	return pos[order], w[order]
 
 
-def polygonize_landuse(use_agri, parameters, context, feedback):
-	# River network buffer
-	alg_params = {
-		'INPUT' : parameters['rivnet'],
-		'DISTANCE' : 500,
-		'SEGMENTS' : 5,
-		'END_CAP_STYLE' : 0,
-		'JOIN_STYLE' : 0,
-		'MITER_LIMIT' : 2,
-		'DISSOLVE' : True,
-		'OUTPUT' : 'TEMPORARY_OUTPUT'
-	}
-	buffer = processing.run("native:buffer", alg_params, context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
-	# Clip raster by mask
+def widths_at_distances(dists, pos, w):
+	"""
+	For each distance along the line, returns the width of the PtRef closest
+	in along-line distance (NaN when the segment has no usable PtRef).
+	"""
+	dists = np.asarray(dists, dtype=float)
+	if len(pos) == 0:
+		return np.full(len(dists), np.nan)
+	j = np.searchsorted(pos, dists)
+	j_hi = np.clip(j, 0, len(pos) - 1)
+	j_lo = np.clip(j - 1, 0, len(pos) - 1)
+	use_lo = np.abs(dists - pos[j_lo]) <= np.abs(pos[j_hi] - dists)
+	return w[np.where(use_lo, j_lo, j_hi)]
+
+
+def max_ptref_width(ptref_by_seg: dict) -> float:
+	vals = [w for items in ptref_by_seg.values() for _, w in items if w is not None and np.isfinite(w)]
+	return max(vals) if vals else 0.0
+
+
+def polygonize_landuse(use_agri, parameters, context, feedback, zone):
 	alg_params = {
 		'INPUT' : parameters['landuse'],
-		'MASK' : buffer,
+		'MASK' : zone,
 		'SOURCE_CRS' : None,
 		'TARGET_CRS' : None,
 		'TARGET_EXTENT' : None,
@@ -405,215 +444,88 @@ def polygonize_landuse(use_agri, parameters, context, feedback):
 	return poly_layer
 
 
-def simplify_layer_once(layer, tol=2.0):
-	dissolved = processing.run('native:dissolve', {
-		'INPUT': layer, 'SEPARATE_DISJOINT': False, 'OUTPUT': 'memory:'
+def simplify_layer_once(layer, tol=2.0, dissolve=True):
+	src = layer
+	if dissolve :
+		src = processing.run('native:dissolve', {
+			'INPUT': layer, 'SEPARATE_DISJOINT': False, 'OUTPUT': 'memory:'
+		})['OUTPUT']
+	return processing.run('native:simplifygeometries', {
+		'INPUT': src, 'METHOD': 0, 'TOLERANCE': tol, 'OUTPUT': 'memory:'
 	})['OUTPUT']
-	simplified = processing.run('native:simplifygeometries', {
-		'INPUT': dissolved, 'METHOD': 0, 'TOLERANCE': tol, 'OUTPUT': 'memory:'
-	})['OUTPUT']
-	return simplified
 
 
-def safe_points_along_line(seg_geom: QgsGeometry, step_m: float) -> list:
+def line_to_segments(line: QgsGeometry):
 	"""
-	Robustly sample points along a (multi)line geometry every step_m meters.
-	- Clamps interpolation distances to [0, length - eps] to avoid null geometries.
-	- Skips empty/invalid interp results defensively.
-	- Falls back to a single midpoint when the segment is shorter than the step.
+	Returns numpy arrays (x0, y0, dx, dy, length) for every non-degenerate
+	sub-segment of the line (multipart handled, zero-length segments dropped).
 	"""
-	pts = []
-	if seg_geom is None or seg_geom.isEmpty():
-		return pts
-	seg_len = seg_geom.length()
-	if not np.isfinite(seg_len) or seg_len <= 0.0:
-		return pts
-	# Tiny epsilon to stay strictly inside [0, length)
-	eps = max(1e-6, min(0.001, 1e-3 * seg_len))
-	def _interp_point_at(dist_m: float):
-		"""Interpolate and safely convert to QgsPointXY if a point geometry is returned."""
-		g = seg_geom.interpolate(dist_m)
-		if not g or g.isEmpty() or g.type() != QgsWkbTypes.PointGeometry:
-			return None
-		# Handle Point vs MultiPoint
-		try:
-			p = g.asPoint()
-		except Exception:
-			mp = g.asMultiPoint()
-			if not mp:
-				return None
-			p = mp[0]
-		return QgsPointXY(p.x(), p.y())
-	# If the line is shorter than the step -> single midpoint (clamped)
-	if seg_len < step_m:
-		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
-		p = _interp_point_at(mid)
-		return [p] if p is not None else []
-	# Regular sampling
-	d = 0.0
-	while d < seg_len:
-		# Clamp d to [0, seg_len - eps] to avoid "null geometry" from interpolate()
-		dd = min(seg_len - eps, max(0.0, d))
-		p = _interp_point_at(dd)
-		if p is not None:
-			pts.append(p)
-		d += step_m
-	# Safety: if nothing has been collected (rare degenerate cases), try the midpoint
-	if not pts:
-		mid = max(0.0, min(seg_len - eps, seg_len * 0.5))
-		p = _interp_point_at(mid)
-		if p is not None:
-			pts.append(p)
-
-	return pts
-
-
-def nearest_width_value_indexed(center_pt: QgsPointXY, seg_ptref_idx_entry) -> float or None:
-	"""
-	Find the closest width via spatial index for this segment.
-	seg_ptref_idx_entry = {'index': QgsSpatialIndex, 'features': [QgsFeature], 'id_to_feat': {fid: QgsFeature}, 'width_field': 'Largeur_mod'}
-	"""
-	if not seg_ptref_idx_entry:
-		return None
-	idx = seg_ptref_idx_entry['index']
-	id_to_feat = seg_ptref_idx_entry['id_to_feat']
-	width_field = seg_ptref_idx_entry['width_field']
-	# Search box (~100 m around the point) to limit candidates
-	# (you can adjust the radius according to the density of PtRef)
-	r = 100
-	rect = QgsRectangle(center_pt.x() - r, center_pt.y() - r, center_pt.x() + r, center_pt.y() + r)
-	candidate_ids = idx.intersects(rect)
-	best_w = None
-	best_d = float('inf')
-	center_g = QgsGeometry.fromPointXY(center_pt)
-	# if there are no candidates in the bbox, we try them all (rare)
-	if not candidate_ids:
-		candidate_ids = id_to_feat.keys()
-	# Retrieve each candidate feature by FID from the precomputed id_to_feat dict
-	# (built once per segment in build_ptref_spatial_indexes, O(1) lookup)
-	for fid in candidate_ids:
-		pf = id_to_feat.get(fid)
-		if pf is None:
+	if QgsWkbTypes.isCurvedType(line.wkbType()):
+		line = line.convertToStraightSegment()
+	if QgsWkbTypes.isMultiType(line.wkbType()):
+		parts = line.asMultiPolyline()
+	else:
+		parts = [line.asPolyline()]
+	x0, y0, dx, dy = [], [], [], []
+	for part in parts:
+		if len(part) < 2:
 			continue
-		g = pf.geometry()
-		if not g or g.isEmpty():
-			continue
-		d = g.distance(center_g)
-		# Read width
-		try:
-			val = pf[width_field]
-			w = float(val) if val is not None else None
-		except Exception:
-			w = None
-		if w is not None and d < best_d:
-			best_d, best_w = d, w
-	return best_w
+		xy = np.array([(p.x(), p.y()) for p in part], dtype=float)
+		d = np.diff(xy, axis=0)
+		x0.append(xy[:-1, 0]); y0.append(xy[:-1, 1])
+		dx.append(d[:, 0]);    dy.append(d[:, 1])
+	if not x0:
+		return (np.empty(0),) * 5
+	x0, y0, dx, dy = map(np.concatenate, (x0, y0, dx, dy))
+	slen = np.hypot(dx, dy)
+	keep = slen > 0
+	return x0[keep], y0[keep], dx[keep], dy[keep], slen[keep]
 
 
-def direction_angle_at_point_fast(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
+def sample_line(line: QgsGeometry, step_m: float):
 	"""
-	Fast-path: estimates the local tangent angle near pt_xy using
-	QgsGeometry.closestSegmentWithContext (C++ implementation).
-
-	Returns 0.0 on failure/degenerate cases, and is intentionally
-	conservative to let the robust fallback handle edge cases.
+	Samples the line every step_m meters (same rules as before: clamp to [0, L - eps],
+	single midpoint if the line is shorter than the step).
+	Returns (distances, x, y, theta) as numpy arrays; theta = local tangent angle (rad).
 	"""
-	if (seg_geom is None) or seg_geom.isEmpty():
-		return 0.0
-	try:
-		center_g = QgsGeometry.fromPointXY(pt_xy)
-		res = seg_geom.closestSegmentWithContext(center_g)
-		# 'res' can vary by QGIS version. We want the two vertices (before/after).
-		if not res:
-			return 0.0
-		# Known patterns include:
-		#   (closest_pt, after_vertex, before_vertex, sqr_dist)
-		#   (closest_pt, after_vertex, before_vertex, dist, left_of)
-		# We'll try to unpack tolerantly.
-		v_after, v_before = None, None
-		if len(res) >= 3:
-			# Typical indexing: 0:closest_pt, 1:after, 2:before
-			v_after = res[1]
-			v_before = res[2]
-		if v_after is None or v_before is None:
-			return 0.0
-		ax, ay = v_before.x(), v_before.y()
-		bx, by = v_after.x(), v_after.y()
-		dx, dy = (bx - ax), (by - ay)
-		if dx == 0.0 and dy == 0.0:
-			return 0.0
-		return math.atan2(dy, dx)
-	except Exception:
-		return 0.0
+	empty = (np.empty(0),) * 4
+	if line is None or line.isEmpty():
+		return empty
+	x0, y0, dx, dy, slen = line_to_segments(line)
+	if len(slen) == 0:
+		return empty
+	cum = np.concatenate(([0.0], np.cumsum(slen)))
+	L = cum[-1]
+	eps = max(1e-6, min(0.001, 1e-3 * L))
+	step_m = max(step_m, 1e-6)
+	if L < step_m:
+		d = np.array([max(0.0, min(L - eps, L * 0.5))])
+	else:
+		d = np.minimum(L - eps, np.arange(0.0, L, step_m))
+	# Index of the sub-segment containing each distance
+	i = np.clip(np.searchsorted(cum, d, side='right') - 1, 0, len(slen) - 1)
+	t = (d - cum[i]) / slen[i]
+	px = x0[i] + dx[i] * t
+	py = y0[i] + dy[i] * t
+	theta = np.arctan2(dy[i], dx[i])
+	return d, px, py, theta
 
 
-def direction_angle_at_point(seg_geom: QgsGeometry, pt_xy: QgsPointXY) -> float:
+def make_transects(px, py, theta, offsets, length_m):
 	"""
-	Returns the local tangent angle (in radians) of the river segment near pt_xy.
-
-	Robust implementation:
-	- Linearizes curved geometries (CompoundCurve/MultiCurve) to avoid surprises;
-	- Detects multipart vs singlepart to safely use asMultiPolyline()/asPolyline();
-	- Finds the closest small polyline segment to pt_xy and computes its angle;
-	- Returns 0.0 when geometry is invalid/degenerate or angle cannot be determined.
-
-	Parameters
-	----------
-	seg_geom : QgsGeometry
-		The geometry of the river segment (LineString or MultiLineString, possibly curved).
-	pt_xy : QgsPointXY
-		The point near which the local direction (tangent) is required.
-
-	Returns
-	-------
-	float
-		Angle in radians in range (-pi, pi], or 0.0 if not computable.
+	Left transects (theta + 90°) then right transects (theta - 90°), each starting at
+	'offset' m from the centerline and ending at offset + length_m.
 	"""
-	if (seg_geom is None) or seg_geom.isEmpty():
-		return 0.0
-	# 1) Linearize if geometry is curved (CompoundCurve/MultiCurve)
-	try:
-		if QgsWkbTypes.isCurvedType(seg_geom.wkbType()):
-			seg_geom = seg_geom.segmentize()
-	except Exception:
-		# If segmentize() is unavailable/unsupported, continue as-is.
-		pass
-	# 2) Normalize to a list of polylines: [[QgsPointXY, ...], ...]
-	parts = []
-	try:
-		if seg_geom.isMultipart() or QgsWkbTypes.isMultiType(seg_geom.wkbType()):
-			parts = seg_geom.asMultiPolyline()
-		else:
-			pl = seg_geom.asPolyline()
-			parts = [pl] if pl else []
-	except TypeError:
-		# Some PyQGIS versions raise TypeError when calling asMultiPolyline() on LineString.
-		pl = seg_geom.asPolyline()
-		parts = [pl] if pl else []
-	except Exception:
-		return 0.0
-	if not parts:
-		return 0.0
-	# 3) Find the closest subsegment to pt_xy and compute its direction
-	best_seg = None
-	best_dist = float('inf')
-	pt_geom = QgsGeometry.fromPointXY(pt_xy)
-	for line in parts:
-		if not line or len(line) < 2:
-			continue
-		for a, b in zip(line[:-1], line[1:]):
-			seg_geom_ab = QgsGeometry.fromPolylineXY([a, b])
-			d = seg_geom_ab.distance(pt_geom)
-			if d < best_dist:
-				best_dist = d
-				best_seg = (a, b)
-	if best_seg is None:
-		return 0.0
-	a, b = best_seg
-	dx, dy = (b.x() - a.x()), (b.y() - a.y())
-	if dx == 0.0 and dy == 0.0:
-		return 0.0
-	return math.atan2(dy, dx)
+	nx, ny = -np.sin(theta), np.cos(theta)	# left normal
+	lines = []
+	for sign in (1.0, -1.0):
+		xs, ys = px + sign * nx * offsets, py + sign * ny * offsets
+		xe, ye = px + sign * nx * (offsets + length_m), py + sign * ny * (offsets + length_m)
+		lines.extend(
+			QgsGeometry.fromPolylineXY([QgsPointXY(a, b), QgsPointXY(c, d)])
+			for a, b, c, d in zip(xs, ys, xe, ye)
+		)
+	return lines
 
 
 def make_transect_line(center_pt: QgsPointXY, normal_angle: float, offset: float, length_m: float) -> QgsGeometry:
