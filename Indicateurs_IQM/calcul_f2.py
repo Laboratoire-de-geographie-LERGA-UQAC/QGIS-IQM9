@@ -309,7 +309,7 @@ class IndiceF2(QgsProcessingAlgorithm):
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie : Vectoriel (lignes)\n" \
-			"-> Réseau hydrographique du bassin versant avec le score de l'indice F2 calculé pour chaque UEA."
+			"-> Réseau hydrographique du bassin versant avec la largeur médiane de la zone latérale de connectivité et le score de l'indice F2 calculé pour chaque UEA. NOTE : Une largeur médiane de connectivité latérale identifiée à 51 m signifie que la largeur dépasse la largeur maximale de recherche de 50 m."
 		)
 
 
