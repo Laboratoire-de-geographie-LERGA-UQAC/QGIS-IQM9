@@ -60,7 +60,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 		self.addParameter(QgsProcessingParameterVectorLayer('structures', self.tr('Structures (MTMD)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None))
 		self.addParameter(QgsProcessingParameterBoolean('use_agri', self.tr('Utiliser milieux agricoles (pour F2 et F3)?'), defaultValue=True, optional=True))
-		self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink('Iqm', self.tr('Couche de sortie (IQM9)'), type=QgsProcessing.TypeVectorAnyGeometry, createByDefault=True, supportsAppend=True, defaultValue=None))
 
 
 	def checkParameterValues(self, parameters, context):
@@ -131,6 +131,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 			outputs['CalculePointeurD8'] = processing.run('script:computed8', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans le calcul du WBT D8 pointer : {str(e)}"))
+			return {}
 		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul WBT D8 pointer", feedback)
 		if feedback.isCanceled():
 			return {}
@@ -148,6 +149,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 			outputs['FiltrerStructures'] = processing.run('script:filterstructures', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans le filtre des structures : {str(e)}"))
+			return {}
 		current_step = self.get_ET_and_current_step(start_time, current_step, "filtre struct", feedback)
 		if feedback.isCanceled():
 			return {}
@@ -172,6 +174,7 @@ class compute_iqm(QgsProcessingAlgorithm):
 					return {}
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans l'extraction des sous-BV : {str(e)}"))
+			return {}
 		current_step = self.get_ET_and_current_step(start_time, current_step, "extract sous-BV", feedback)
 		if feedback.isCanceled():
 			return {}
@@ -467,6 +470,11 @@ class compute_iqm(QgsProcessingAlgorithm):
 			}
 			outputs['FieldCalculator'] = processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)
 			results['Iqm'] = outputs['FieldCalculator']['OUTPUT']
+			# Name under which the layer is loaded in the project
+			if context.willLoadLayerOnCompletion(results['Iqm']):
+				details = context.layerToLoadOnCompletionDetails(results['Iqm'])
+				details.name = 'Couche de sortie (IQM9)'
+				details.forceName = True
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans le calcul de l'IQM : {str(e)}"))
 		current_step = self.get_ET_and_current_step(start_time, current_step, "calcul IQM", feedback)

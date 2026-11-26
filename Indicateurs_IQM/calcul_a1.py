@@ -30,7 +30,7 @@ from qgis.core import (
 	QgsProcessing,
 	QgsField,
 	QgsFeatureSink,
-	QgsVectorLayer,
+	QgsFeatureRequest,
 	QgsProcessingUtils,
 	QgsProcessingAlgorithm,
 	QgsProcessingParameterRasterLayer,
@@ -48,13 +48,13 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 	def initAlgorithm(self, config=None):
 		self.addParameter(QgsProcessingParameterBoolean('SUB_WATERSHED_GIVEN', self.tr('Couche de sous-BV fournie ?'), defaultValue=False))
-		self.addParameter(QgsProcessingParameterVectorLayer('watersheds', self.tr('Sous bassins versants et util. terr (sortant de Extract. sous-BV)'), types=[QgsProcessing.TypeVectorPolygon], defaultValue=None, optional=True))
+		self.addParameter(QgsProcessingParameterVectorLayer('watersheds', self.tr('Sous bassins versants et util. terr (sortant de Extract. sous-BV)'), types=[QgsProcessing.TypeVector], defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterRasterLayer('D8', self.tr('WBT D8 Pointer (sortant de Calcule pointeur D8)'), defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterVectorLayer('dams', self.tr('Barrages (CEHQ)'), types=[QgsProcessing.TypeVectorPoint], defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterRasterLayer('landuse', self.tr('Utilisation du territoire (MELCCFP)'), defaultValue=None, optional=True))
 		self.addParameter(QgsProcessingParameterVectorLayer('stream_network', self.tr('Réseau hydrographique (CRHQ)'), types=[QgsProcessing.TypeVectorLine], defaultValue=None))
 		self.addParameter(QgsProcessingParameterString('segment_id_field', self.tr('Nom du champ identifiant segment'), defaultValue=self.DEFAULT_SEG_ID_FIELD))
-		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie'), defaultValue=None))
+		self.addParameter(QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Couche de sortie (Indice A1)'), defaultValue=None))
 
 
 	def checkParameterValues(self, parameters, context):
@@ -75,7 +75,7 @@ class IndiceA1(QgsProcessingAlgorithm):
 
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		feedback = QgsProcessingMultiStepFeedback(3, model_feedback)
+		feedback = QgsProcessingMultiStepFeedback(2, model_feedback)
 		outputs = {}
 
 		# Making layers and parameters needed for processing
@@ -112,9 +112,11 @@ class IndiceA1(QgsProcessingAlgorithm):
 				# Create the sub watersheds
 				alg_params = {
 					'stream_network' : parameters['stream_network'],
+					'segment_id_field' : seg_id_field, # default : Id_UEA
 					'D8' : parameters['D8'],
 					'dams' : parameters['dams'],
 					'landuse' : parameters['landuse'],
+					'EXPORT_POLYGONS' : False,
 					'OUTPUT' : QgsProcessing.TEMPORARY_OUTPUT
 				}
 				watersheds_data = processing.run('script:extract_subwatershed', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
@@ -125,46 +127,23 @@ class IndiceA1(QgsProcessingAlgorithm):
 					return {}
 			except Exception as e :
 				feedback.reportError(self.tr(f"Erreur dans la création de la couche de sous-BV : {str(e)}"))
+				return {}
 		feedback.setCurrentStep(1)
 		# Compute A1 index
 		feedback.setProgressText(self.tr(f"Calcul de l'indice A1"))
 		try :
-			outputs['watersheds'] = computeA1(watersheds, context, feedback=None)
+			# Read only the attributes (no geometry), one row per segment
+			request = QgsFeatureRequest().setFlags(QgsFeatureRequest.NoGeometry)
+			rows = {f[seg_id_field]: (f['watershed_area'], f['forest_area'], f['agri_area'])
+					for f in watersheds.getFeatures(request)}
+			for feat in source.getFeatures():
+				ws_val, f_val, a_val = rows.get(feat[seg_id_field], (None, None, None))
+				a1_val = computeA1(ws_val, f_val, a_val) if ws_val is not None else None
+				feat.setAttributes(feat.attributes() + [ws_val, f_val, a_val, a1_val])
+				sink.addFeature(feat, QgsFeatureSink.FastInsert)
 		except Exception as e :
 			feedback.reportError(self.tr(f"Erreur dans le calcul de l'indice A1 : {str(e)}"))
 		feedback.setCurrentStep(2)
-		if feedback.isCanceled():
-			return {}
-
-		# Getting results ready to output
-		feedback.setProgressText(self.tr(f"Sortie des résultats."))
-		try :
-			# Convert watershed features to vector layers
-			watersheds_lyr = QgsVectorLayer(outputs['watersheds'], 'ws', 'ogr')
-			# If present, a 'seg_id_field' key is preferred; otherwise, 'DN' is used.
-			use_key = seg_id_field if (watersheds_lyr.fields().indexFromName(seg_id_field) != -1) else 'DN'
-			# Map feature ID and index values for each watershed layer
-			a1_map = {f[use_key]: f['Indice A1'] for f in watersheds_lyr.getFeatures()}
-			ws_area_map = {f[use_key]: f["watershed_area"] for f in watersheds.getFeatures()}
-			forest_map = {f[use_key]: f["forest_area"] for f in watersheds.getFeatures()}
-			agri_map = {f[use_key]: f["agri_area"] for f in watersheds.getFeatures()}
-			# Write final indices to sink using map
-			for feat in source.getFeatures():
-				seg = feat[seg_id_field]
-				# Get existing attributes
-				vals = feat.attributes()
-				# Get wanted values (None if absent)
-				a1_val   = a1_map.get(seg, None)
-				ws_val   = ws_area_map.get(seg, None)
-				f_val    = forest_map.get(seg, None)
-				a_val    = agri_map.get(seg, None)
-				# Add the new attributes
-				vals += [ws_val, f_val, a_val, a1_val]
-				feat.setAttributes(vals)
-				sink.addFeature(feat, QgsFeatureSink.FastInsert)
-		except Exception as e :
-			feedback.reportError(self.tr(f"Erreur dans la sortie des résultats : {str(e)}"))
-		feedback.setCurrentStep(3)
 		if feedback.isCanceled():
 			return {}
 
@@ -204,9 +183,9 @@ class IndiceA1(QgsProcessingAlgorithm):
 			"Paramètres\n" \
 			"----------\n" \
 			"Couche de sous-BV fournis: Booléen (optionnel; valeur par défaut : Faux)\n" \
-			"-> Détermine si la couche de sous-BV (préalablement produite par Extract sous-BV et landuse [A123]) est fournie par l'utilisateur.\n" \
-			"Sous bassins versants et util. terr: Vectoriel (polygone) (optionnel, mais obligatoire si couche de sous-BV fournis est coché)\n" \
-			"-> Couche de polygones contenant les sous bassin versant du BV donné ainsi que l'information d'utilisation du territoire. Produit par le script IQM utils Extract sous-BV et landuse (A123). Source des données : À produire soi-même préalablement.\n" \
+			"-> Détermine si la couche de sous-BV (préalablement produite par Extract sous-BV et landuse [A1 et A2]) est fournie par l'utilisateur.\n" \
+			"Sous bassins versants et util. terr: Tableau (optionnel, mais obligatoire si couche de sous-BV fournis est coché)\n" \
+			"-> Tableau contenant les superficies de sous bassin versant du BV donné ainsi que l'information d'utilisation du territoire. Produit par le script IQM utils Extract sous-BV et landuse (A1 et A2). Source des données : À produire soi-même préalablement.\n" \
 			"WBT D8 Pointer: Matriciel (optionnel, mais obligatoire si couche de sous-BV fournis n'est pas coché)\n" \
 			"-> Grille de pointeurs de flux pour le bassin versant donné (obtenu par l'outil D8Pointer de WhiteboxTools). Source des données : Sortie du script Calcule pointeur D8.\n" \
 			"Barrages : Vectoriel (point) (optionnel, mais obligatoire si couche de sous-BV fournis n'est pas coché)\n" \
@@ -224,31 +203,13 @@ class IndiceA1(QgsProcessingAlgorithm):
 		)
 
 
-def computeA1(watersheds, context, feedback) :
-	a1_formula = """
-		CASE
-			WHEN "watershed_area" = 0 THEN NULL
-			WHEN "forest_area"/"watershed_area" <= 0.10 THEN 5
-			WHEN "forest_area"/"watershed_area" < 0.33 THEN 4
-			WHEN "forest_area"/"watershed_area" >= 0.33 
-				AND "forest_area"/"watershed_area" < 0.66
-				AND "agri_area"/"watershed_area" < 0.33 THEN 2
-			WHEN "forest_area"/"watershed_area" >= 0.33 
-				AND "forest_area"/"watershed_area" < 0.66
-				AND "agri_area"/"watershed_area" >= 0.33 THEN 3
-			WHEN "forest_area"/"watershed_area" >= 0.66 
-				AND "forest_area"/"watershed_area" < 0.90 THEN 1
-			ELSE 0
-		END
-		"""
-	alg_params = {
-		'INPUT': watersheds,
-		'FIELD_NAME': 'Indice A1',
-		'FIELD_TYPE': 2,  # 2 = Integer
-		'FIELD_LENGTH': 3,
-		'FIELD_PRECISION': 0,
-		'NEW_FIELD': True,
-		'FORMULA': a1_formula,
-		'OUTPUT': QgsProcessingUtils.generateTempFilename("watersheds.shp")
-	}
-	return processing.run('native:fieldcalculator', alg_params, context=context, feedback=feedback, is_child_algorithm=True)['OUTPUT']
+def computeA1(ws_area, forest, agri):
+	if not ws_area:               # NULL or 0
+		return None
+	f = forest / ws_area
+	a = agri / ws_area
+	if f <= 0.10: return 5
+	if f < 0.33:  return 4
+	if f < 0.66:  return 2 if a < 0.33 else 3
+	if f < 0.90:  return 1
+	return 0
