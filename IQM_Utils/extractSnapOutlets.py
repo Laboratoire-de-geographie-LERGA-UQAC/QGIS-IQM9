@@ -24,20 +24,26 @@
 """
 
 
+import math
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import (
 	QgsProcessing,
 	QgsProcessingAlgorithm,
+	QgsProcessingException,
 	QgsProcessingMultiStepFeedback,
 	QgsProcessingParameterString,
 	QgsProcessingParameterRasterLayer,
 	QgsProcessingParameterVectorLayer,
 	QgsProcessingParameterVectorDestination,
 	QgsProperty,
-	QgsProcessingUtils
+	QgsProcessingUtils,
+	QgsVectorLayer,
+	QgsFeature,
+	QgsField
 )
 import processing
 
+SNAP_DISTANCE = 40		# Maximum snap distance (m) given to JensonSnapPourPoints
 
 class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 	DEFAULT_SEG_ID_FIELD= 'Id_UEA'
@@ -53,23 +59,28 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 		# Checks if all the parameters are given properly
 		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		dem_layer = self.parameterAsRasterLayer(parameters, 'dem', context)
 
 		if seg_id_field not in [f.name() for f in rivnet_layer.fields()]:
 			return False, self.tr(f"Le champ '{seg_id_field}' est absent de la couche du réseau hydro. ! Veuillez fournir un champ identifiant du segment présent comme attribut de la couche.")
+		# Verify if the layers are all in the same CRS
+		layers_crs = [lyr.crs().authid() for lyr in [rivnet_layer, dem_layer]]
+		if len(set(layers_crs)) > 1 : # If there's a different CRS between the layers
+			return False, self.tr(f"Les SCR des couches fournises ne sont pas identiques ! Veuillez fournir des couches qui ont le même SCR.")
 		return True, ''
-
+	
 
 	def processAlgorithm(self, parameters, context, model_feedback):
-		# Use a multi-step feedback, so that individual child algorithm progress reports are adjusted for the
-		# overall progress through the model
 		feedback = QgsProcessingMultiStepFeedback(4, model_feedback)
 		results = {}
 
 		# Making layers and parameters needed for processing
 		seg_id_field = self.parameterAsString(parameters, 'segment_id_field', context)
+		rivnet_layer = self.parameterAsVectorLayer(parameters, 'stream_network', context)
+		dem_layer = self.parameterAsRasterLayer(parameters, 'dem', context)
+		output_path = self.parameterAsOutputLayer(parameters, 'snapped_outlets', context)
 
-		# Interpolate point on line
-		#interpolated_points_output = QgsProcessingUtils.generateTempFilename("interpolatedPoints.gpkg")
+		# Interpolate point on line (each point inherits the attributes of its own segment)
 		alg_params = {
 			'DISTANCE': QgsProperty.fromExpression('if(length($geometry) > 100, length($geometry) - 30, length($geometry) * 0.9)'),
 			'INPUT': parameters['stream_network'],
@@ -99,7 +110,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 		snapped_tmp = QgsProcessingUtils.generateTempFilename("snapped_tmp.shp")
 		alg_params = {
 			'pour_pts': interp['OUTPUT'],
-			'snap_dist': 40,
+			'snap_dist': SNAP_DISTANCE,
 			'streams': Rasterizestreams['output'],
 			'output': snapped_tmp
 		}
@@ -108,20 +119,52 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 		feedback.setCurrentStep(3)
 		if feedback.isCanceled():
 			return {}
-		
-		# Copy the segment ID from the stream network to the snapped points
-		alg_params = {
-			'INPUT': snapped['output'], # snapped points as target
-			'INPUT_2': parameters['stream_network'],            # join from lines
-			'FIELDS_TO_COPY': [seg_id_field],
-			'NEIGHBORS': 1,
-			'MAX_DISTANCE': 50,                                 # Snap tolerance
-			'DISCARD_NONMATCHING': False,
-			'OUTPUT': parameters['snapped_outlets']
-		}
-		joined = processing.run('native:joinbynearest', alg_params,
+
+		# Copy the segment ID onto the snapped points BY POSITION (not by proximity).
+		# WhiteboxTools writes the snapped points in the same order as the interpolated points, so the
+		# n-th snapped point belongs to the n-th interpolated point, i.e. to the segment it was interpolated on.
+		interp_layer = QgsProcessingUtils.mapLayerFromString(interp['OUTPUT'], context)
+		snapped_layer = QgsVectorLayer(snapped['output'], 'snapped', 'ogr')
+		if interp_layer is None or not interp_layer.isValid() or not snapped_layer.isValid():
+			raise QgsProcessingException(self.tr("Impossible de lire les points interpolés ou les points snappés."))
+
+		interp_feats = sorted(interp_layer.getFeatures(), key=lambda f: f.id())
+		snapped_feats = sorted(snapped_layer.getFeatures(), key=lambda f: f.id())
+		if len(interp_feats) != len(snapped_feats):
+			raise QgsProcessingException(self.tr(
+				f"Le nombre de points snappés ({len(snapped_feats)}) diffère du nombre de points interpolés ({len(interp_feats)}) : "
+				"le rattachement par ordre est impossible."
+			))
+
+		# A point can only have moved by at most the snap distance (plus a cell diagonal of tolerance for the cell centre)
+		pixel = max(dem_layer.rasterUnitsPerPixelX(), dem_layer.rasterUnitsPerPixelY())
+		max_move = SNAP_DISTANCE + 2 * pixel
+		interp_xy = [_point_xy(f.geometry()) for f in interp_feats]
+		snapped_xy = [_point_xy(f.geometry()) for f in snapped_feats]
+		bad = check_order(interp_xy, snapped_xy, max_move)
+		if bad:
+			raise QgsProcessingException(self.tr(
+				f"{len(bad)} point(s) snappé(s) se trouvent à plus de {max_move:.0f} m du point interpolé de même rang (ex. rang {bad[0] + 1}). "
+				"L'ordre des points n'est pas conservé par WhiteboxTools, ou les SCR du MNT et du réseau diffèrent."
+			))
+
+		# Output layer : one point per segment, geometry from the snapped point, segment ID from the interpolated point
+		out_layer = QgsVectorLayer('Point', 'snapped_outlets', 'memory')
+		out_layer.setCrs(rivnet_layer.crs())
+		out_layer.dataProvider().addAttributes([QgsField(rivnet_layer.fields().field(seg_id_field))])
+		out_layer.updateFields()
+		out_feats = []
+		for src, snp in zip(interp_feats, snapped_feats):
+			f = QgsFeature(out_layer.fields())
+			f.setGeometry(snp.geometry())
+			f.setAttributes([src[seg_id_field]])
+			out_feats.append(f)
+		out_layer.dataProvider().addFeatures(out_feats)
+
+		joined = processing.run('native:savefeatures', {'INPUT': out_layer, 'OUTPUT': output_path},
 								context=context, feedback=None, is_child_algorithm=True)['OUTPUT']
 		results['OUTPUT'] = joined
+		results['snapped_outlets'] = joined
 
 		feedback.setCurrentStep(4)
 		if feedback.isCanceled():
@@ -132,6 +175,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 	def name(self):
 		return 'extractandsnapoutlets'
 
+
 	def displayName(self):
 		return self.tr('Extraction And Snap Outlets')
 
@@ -139,6 +183,7 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 	def shortHelpString(self):
 		return self.tr(
 			"Extrait et met ensemble les embouchures des segments.\n" \
+			"Chaque point est interpolé sur son segment puis déplacé sur le cours d'eau rastérisé; l'identifiant du segment est conservé par position (un point par segment), et non par proximité, ce qui évite les doublons et les erreurs d'attribution près des confluences.\n" \
 			"Paramètres\n" \
 			"----------\n" \
 			"MNT LiDAR (10 m) : Matriciel\n" \
@@ -150,17 +195,39 @@ class ExtractAndSnapOutlets(QgsProcessingAlgorithm):
 			"Retourne\n" \
 			"----------\n" \
 			"Couche de sortie (Snapped_outlets) : Vectoriel (points)\n" \
-			"-> Couche vectorielle de données ponctuelles de l'embouchure de chaque UEA"
+			"-> Couche vectorielle de données ponctuelles de l'embouchure de chaque UEA (un point par segment)"
 		)
+
 
 	def group(self):
 		return self.tr('IQM utils')
 
+
 	def groupId(self):
 		return 'iqmutils'
+
 
 	def tr(self, string):
 		return QCoreApplication.translate('Processing', string)
 
+
 	def createInstance(self):
 		return ExtractAndSnapOutlets()
+
+
+# Helper functions
+def _point_xy(geom):
+	# First vertex of a point or multipoint geometry as (x, y); None if the geometry is empty
+	if geom is None or geom.isNull() or geom.isEmpty():
+		return None
+	p = geom.asMultiPoint()[0] if geom.isMultipart() else geom.asPoint()
+	return (p.x(), p.y())
+
+
+def check_order(interp_xy, snapped_xy, max_move):
+	# Returns the ranks whose snapped point is farther than max_move from the interpolated point of the same rank
+	bad = []
+	for i, (a, b) in enumerate(zip(interp_xy, snapped_xy)):
+		if a is None or b is None or math.hypot(a[0] - b[0], a[1] - b[1]) > max_move:
+			bad.append(i)
+	return bad
